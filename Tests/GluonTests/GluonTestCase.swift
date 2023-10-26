@@ -11,8 +11,11 @@ import XCTest
 @testable import gluon
 
 class GluonTestCase: XCTestCase {
-    let configPath = "/Users/test/repo/.gluon.yml"
-    let repoPath = "/Users/test/repo"
+    static let homePath = "/Users/test"
+    static let repoPath = "\(homePath)/repo"
+    static let configPath = "\(repoPath)/.gluon.yml"
+
+    var repoUnderTest: MockRepository = .mock
 
     var testOutput: String {
         let printer = Gluon.printer as! MockPrinter
@@ -27,37 +30,56 @@ class GluonTestCase: XCTestCase {
             .map(\.0)
             .joined()
     }
-    
-    override func setUp() {
-        Gluon.processInfo = MockProcessInfo.mock
-
-        var fileManager = MockFileManager.mock
-        fileManager.currentDirectoryPath = repoPath
-
-        Gluon.fileManager = fileManager
-
-        Gluon.openRepo = { [weak self] url in
-            XCTAssertEqual(url.path(), self?.repoPath)
-            return .success(MockRepository.mock)
-        }
-
-        Gluon.printer = MockPrinter.mock
-    }
 
     override func invokeTest() {
         let printer = Gluon.printer
         let openRepo = Gluon.openRepo
         let mockRepo = MockRepository.mock
-        let fileManager = Gluon.fileManager
+        let repoUpdated = MockRepository.repoUpdated
+        let oldFileManager = Gluon.fileManager
         let config = Configuration.configuration
+        let readPassphrase = Gluon.readPassphrase
+        let promptUser = Gluon.promptUser
+        let processInfo = Gluon.processInfo
+
+        Gluon.processInfo = MockProcessInfo.mock
+
+        var fileManager = MockFileManager.mock
+        fileManager.currentDirectoryPath = Self.repoPath
+        fileManager.homeDirectoryForCurrentUser = URL(string: Self.homePath)!
+
+        Gluon.fileManager = fileManager
+
+        Gluon.openRepo = { url in
+            XCTAssertEqual(url.path(), Self.repoPath)
+            return .success(MockRepository.mock)
+        }
+
+        Gluon.readPassphrase = {
+            return "foo bar"
+        }
+
+        Gluon.promptUser = { _ in
+            return "y"
+        }
+
+        Gluon.printer = MockPrinter.mock
+
+        MockRepository.repoUpdated = { [weak self] in
+            self?.repoUnderTest = $0
+        }
 
         super.invokeTest()
 
         Configuration.configuration = config
-        Gluon.fileManager = fileManager
+        Gluon.fileManager = oldFileManager
         MockRepository.mock = mockRepo
+        MockRepository.repoUpdated = repoUpdated
         Gluon.openRepo = openRepo
         Gluon.printer = printer
+        Gluon.readPassphrase = readPassphrase
+        Gluon.promptUser = promptUser
+        Gluon.processInfo = processInfo
     }
 
     func setEnv<E: EnvironmentVariable>(_ env: E, to value: String) {

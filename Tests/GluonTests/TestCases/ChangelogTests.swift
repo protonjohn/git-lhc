@@ -178,6 +178,7 @@ class ChangelogTests: GluonTestCase {
     func testChangelogWithTagPrefix() throws {
         Configuration.configuration = .init(
             projectPrefix: nil,
+            projectIdTrailerName: nil,
             subjectMaxLineLength: nil,
             bodyMaxLineLength: nil,
             branchNameLinting: nil,

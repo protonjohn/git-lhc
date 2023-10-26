@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ArgumentParser
 
 extension Substring {
     func advanced(by n: Int) -> Self {
@@ -57,4 +58,22 @@ extension RandomAccessCollection {
         }
         return low
     }
+}
+
+extension Bool {
+    init?(promptString: String) {
+        let promptString = promptString.lowercased()
+
+        if promptString == "yes" || promptString == "y" {
+            self = true
+        } else if promptString == "no" || promptString == "n" {
+            self = false
+        } else {
+            return nil
+        }
+    }
+}
+
+extension ExpressibleByArgument where Self: CaseIterable & RawRepresentable, RawValue == String {
+    static var possibleValues: String { allCases.map(\.rawValue).joined(separator: ", ") }
 }

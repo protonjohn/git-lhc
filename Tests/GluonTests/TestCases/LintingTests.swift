@@ -25,7 +25,7 @@ class LintingTests: GluonTestCase {
         // Everything down to the root
         do {
             try invoke([
-                "--repo", repoPath,
+                "--repo", Self.repoPath,
                 "--since", String(describing: MockCommit.developCommit(indexFromRoot: 0).oid)
             ])
         }
@@ -60,11 +60,11 @@ class LintingTests: GluonTestCase {
     func testTrailers() throws {
         Configuration.configuration = .init(
             projectPrefix: "TEST-",
+            projectIdTrailerName: "Project-Id",
             subjectMaxLineLength: nil,
             bodyMaxLineLength: nil,
             branchNameLinting: .init(
                 projectIdsInBranches: .commitsMustMatch,
-                projectIdTrailerName: "Project-Id",
                 projectIdRegexes: Configuration.BranchNameLinting.default.projectIdRegexes
             ),
             commitCategories: Configuration.CommitCategory.defaultValues,

@@ -10,6 +10,7 @@ import Foundation
 
 struct MockFileManager: FileManagerish {
     var currentDirectoryPath: String
+    var homeDirectoryForCurrentUser: URL
 
     var root: MockFile
 
@@ -108,6 +109,7 @@ struct MockFileManager: FileManagerish {
 
     static let mock: Self = .init(
         currentDirectoryPath: "/Users/test/repo",
+        homeDirectoryForCurrentUser: URL(string: "/Users/test")!,
         root: .directory(
             name: "/",
             contents: [

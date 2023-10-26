@@ -8,6 +8,12 @@ import Foundation
 import SwiftGit2
 
 extension Repository: Repositoryish {
+    var defaultSignature: Signature {
+        get throws {
+            return try defaultSignature().get()
+        }
+    }
+
     func HEAD() throws -> ReferenceType {
         return try HEAD().get()
     }
@@ -40,8 +46,26 @@ extension Repository: Repositoryish {
         return try tag(oid).get()
     }
 
+    func createTag(_ name: String, target: ObjectType, signature: Signature, message: String) throws -> TagReferenceish {
+        let tag = try createTag(name, target: target, signature: signature, message: message).get()
+        return TagReference.annotated("refs/tags/\(tag.name)", tag)
+    }
+
     func allTags() throws -> [TagReferenceish] {
         return try allTags().get()
+    }
+
+    func push(remote remoteName: String, credentials: Credentials, reference: ReferenceType) throws {
+        return try push(remote: remoteName, credentials: credentials, reference: reference).get()
+    }
+
+    func commit(
+        tree treeOID: ObjectID,
+        parents: [Commitish],
+        message: String,
+        signature: Signature
+    ) throws -> Commitish {
+        try commit(tree: treeOID, parents: parents.map { $0 as! Commit }, message: message, signature: signature).get()
     }
 }
 
@@ -98,5 +122,13 @@ extension Tag: Tagish {
 extension Gluon {
     static var openRepo: ((URL) -> Result<Repositoryish, Error>) = {
         Repository.at($0).map { $0 }.mapError { $0 }
+    }
+
+    static func openRepo(at path: String) throws -> Repositoryish {
+        guard let url = URL(string: path) else {
+            throw GluonError.invalidPath(path)
+        }
+
+        return try Self.openRepo(url).get()
     }
 }

@@ -72,7 +72,7 @@ struct Lint: ParsableCommand {
         }
 
         let category = String(categorySubstring)
-        let categories = Self.config.commitCategories ?? Configuration.default.commitCategories!
+        let categories = Configuration.get(\.commitCategories)
         guard categories.contains(where: { $0.name == category }) != false else {
             throw CommitLintingError.subjectHasUnrecognizedCategory(subject: subject, category: category, of: commit)
         }
@@ -89,26 +89,28 @@ struct Lint: ParsableCommand {
     }
 
     func lintTrailers(of commit: Commitish, on branch: Branchish?) throws {
-        if let trailerName = Self.config.branchNameLinting?.projectIdTrailerName,
-           let projectIds = branch?.projectIds, !projectIds.isEmpty {
-            let trailers: [Trailerish]
-            do {
-                trailers = try commit.trailers
-            } catch {
-                throw CommitLintingError.trailersMissing(from: commit, underlyingError: error)
+        guard let trailerName = Self.config.projectIdTrailerName,
+              let projectIds = branch?.projectIds, !projectIds.isEmpty else {
+            return
+        }
+
+        let trailers: [Trailerish]
+        do {
+            trailers = try commit.trailers
+        } catch {
+            throw CommitLintingError.trailersMissing(from: commit, underlyingError: error)
+        }
+
+        for var projectId in projectIds {
+            if let prefix = Self.config.projectPrefix, !projectId.starts(with: prefix) {
+                projectId = prefix + projectId
             }
 
-            for var projectId in projectIds {
-                if let prefix = Self.config.projectPrefix, !projectId.starts(with: prefix) {
-                    projectId = prefix + projectId
-                }
-
-                guard trailers.contains(where: {
-                    $0.key == trailerName &&
-                    $0.value == projectId
-                }) else {
-                    throw CommitLintingError.missingSpecificTrailer(named: trailerName, withValue: projectId, from: commit)
-                }
+            guard trailers.contains(where: {
+                $0.key == trailerName &&
+                $0.value == projectId
+            }) else {
+                throw CommitLintingError.missingSpecificTrailer(named: trailerName, withValue: projectId, from: commit)
             }
         }
     }

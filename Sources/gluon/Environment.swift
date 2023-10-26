@@ -1,11 +1,12 @@
 //
-//  EnvVars.swift
+//  Environment.swift
 //  
 //
 //  Created by John Biggs on 10.10.23.
 //
 
 import Foundation
+import Version
 
 protocol EnvironmentVariable {
     var key: String { get }
@@ -38,6 +39,7 @@ enum GitlabEnvironment: String, EnvironmentVariable {
     case isManualJob = "CI_JOB_MANUAL"
     case jobURL = "CI_JOB_URL"
     case commitBranch = "CI_COMMIT_BRANCH"
+    case commitTag = "CI_COMMIT_TAG"
     case mergeRequestSourceBranch = "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
 
     var defaultValue: String? {
@@ -50,6 +52,7 @@ enum GitlabEnvironment: String, EnvironmentVariable {
 
 enum GluonEnvironment: String, EnvironmentVariable {
     case configFilePath = "GLUON_CONFIG_PATH"
+    case trainName = "GLUON_TRAIN_NAME"
 
     var defaultValue: String? {
         switch self {
@@ -72,6 +75,29 @@ enum GluonEnvironment: String, EnvironmentVariable {
                     .appending(component: fileName, directoryHint: .notDirectory)
             }
             return url.path()
+        case .trainName:
+            return nil
         }
+    }
+}
+
+extension Configuration.Train {
+    static var environment: Self? {
+        guard let trainName = GluonEnvironment.trainName.value else { return nil }
+        do {
+            return try Configuration.train(named: trainName)
+        } catch {
+            Gluon.print(error, to: &FileHandle.stderr)
+            return nil
+        }
+    }
+}
+
+extension Version {
+    static var environment: Self? {
+        guard let tagName = GitlabEnvironment.commitTag.value else { return nil }
+        let tagPrefix = Configuration.Train.environment?.tagPrefix
+
+        return Version(prefix: tagPrefix, versionString: tagName)
     }
 }

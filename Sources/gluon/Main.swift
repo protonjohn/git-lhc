@@ -6,6 +6,7 @@
 
 import Foundation
 import ArgumentParser
+import Version
 import Yams
 import SwiftGit2
 
@@ -15,8 +16,9 @@ struct Gluon: ParsableCommand {
         subcommands: [
             Lint.self,
             Changelog.self,
+            CreateRelease.self,
+            FindVersions.self,
             CreateDefaultConfig.self,
-            TagRelease.self,
         ]
     )
 
@@ -66,14 +68,46 @@ extension Gluon {
         GitlabEnvironment.mergeRequestSourceBranch.value ??
             GitlabEnvironment.commitBranch.value
     }
+
+    static var tagName: String? {
+        GitlabEnvironment.commitTag.value
+    }
 }
 
 extension Gluon {
-    static func openRepo(at path: String) throws -> Repositoryish {
-        guard let url = URL(string: path) else {
-            throw GluonError.invalidPath(path)
+    static var readPassphrase: (() -> String?) = {
+        var buf = [CChar](repeating: 0, count: 8192)
+        guard let passphraseBytes = readpassphrase("Enter passphrase: ", &buf, buf.count, 0) else {
+            return nil
         }
+        return String(cString: passphraseBytes)
+    }
 
-        return try Self.openRepo(url).get()
+    static var promptUser: ((String) -> String?) = {
+        Self.print($0, terminator: "")
+        return readLine(strippingNewline: true)
+    }
+
+    static func promptForContinuation(_ prompt: String, defaultAction: Bool = true) -> Bool {
+        let action = defaultAction ? "Y/n" : "y/N"
+        var prompt = "\(prompt) Continue? (\(action)) "
+
+        repeat {
+            guard let string = Self.promptUser(prompt) else {
+                Gluon.print("Encountered unexpected EOF.")
+                return false
+            }
+
+            guard !string.isEmpty else {
+                return defaultAction
+            }
+
+            guard let result = Bool(promptString: string) else {
+                prompt = "Unknown response '\(string)'. Continue \(action): "
+                continue
+            }
+
+            return result
+        } while true
     }
 }

@@ -16,8 +16,8 @@ class CreateDefaultConfigTests: GluonTestCase {
         var createDefaultConfig = try CreateDefaultConfig.parse([])
         try createDefaultConfig.run()
 
-        guard let contents = Gluon.fileManager.contents(atPath: configPath) else {
-            XCTFail("No file exists at \(configPath)")
+        guard let contents = Gluon.fileManager.contents(atPath: Self.configPath) else {
+            XCTFail("No file exists at \(Self.configPath)")
             return
         }
 

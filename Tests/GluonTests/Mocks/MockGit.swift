@@ -10,6 +10,8 @@ import SwiftGit2
 @testable import gluon
 
 struct MockCommit: Commitish, Identifiable {
+    static var type: GitObjectType = .commit
+
     var oid: ObjectID
     var parentOIDs: [ObjectID]
     var author: Signature
@@ -23,6 +25,26 @@ struct MockCommit: Commitish, Identifiable {
 
     var id: ObjectID {
         oid
+    }
+
+    init(
+        oid: ObjectID,
+        parentOIDs: [ObjectID],
+        author: Signature,
+        committer: Signature,
+        message: String,
+        date: Date
+    ) {
+        self.oid = oid
+        self.parentOIDs = parentOIDs
+        self.author = author
+        self.committer = committer
+        self.message = message
+        self.date = date
+    }
+
+    init(_ pointer: OpaquePointer) {
+        fatalError("Don't try to init a MockCommit from an OpaquePointer, please.")
     }
 }
 
@@ -103,10 +125,13 @@ class MockCommitishIterator: CommitishIterator {
 }
 
 struct MockRepository: Repositoryish {
+    var defaultSignature: Signature = .cookie
+
     var objects: [OID: MockCommit]
     var tags: [MockTagReference]
     var localBranches: [MockBranch: [MockCommit]]
     var remoteBranches: [MockBranch: [MockCommit]]
+    var pushes: [(Credentials, ReferenceType)] = []
 
     var head: any ReferenceType
 
@@ -116,9 +141,7 @@ struct MockRepository: Repositoryish {
 
     func commits(in branch: Branchish) -> CommitishIterator {
         MockCommitishIterator(
-            commits: localBranches[branch as! MockBranch] ??
-                remoteBranches[branch as! MockBranch] ??
-                []
+            commits: localBranches[branch as! MockBranch] ?? []
         )
     }
 
@@ -131,6 +154,7 @@ struct MockRepository: Repositoryish {
         case unknownBranch(String)
         case unknownTag(String)
         case unknownTagOID(ObjectID)
+        case tagAlreadyExists(String)
     }
 
     mutating func setHEAD(_ oid: ObjectID) throws {
@@ -143,6 +167,8 @@ struct MockRepository: Repositoryish {
         } else {
             throw MockError.unknownOID(oid)
         }
+
+        MockRepository.repoUpdated?(self)
     }
 
     func commit(_ oid: ObjectID) throws -> Commitish {
@@ -184,6 +210,64 @@ struct MockRepository: Repositoryish {
         }
 
         return tag
+    }
+
+    mutating func createTag(_ name: String, target: ObjectType, signature: Signature, message: String) throws -> TagReferenceish {
+        guard !tags.contains(where: { $0.name == name }) else {
+            throw MockError.tagAlreadyExists(name)
+        }
+
+        guard let commit = target as? MockCommit else {
+            fatalError("Invariant violation: target is not a mock commit object")
+        }
+
+        let tag: MockTagReference = .annotated(name: name, message: message, tagging: commit)
+        tags.append(tag)
+
+        MockRepository.repoUpdated?(self)
+        return tag
+    }
+
+    mutating func push(remote remoteName: String, credentials: Credentials, reference: ReferenceType) throws {
+        switch reference {
+        case let localBranch as MockBranch:
+            guard let commit = try commit(localBranch.oid) as? MockCommit else {
+                fatalError("Invariant violation: commit is not a mock object")
+            }
+
+            let mockRemote: MockBranch = .branch(
+                name: "refs/remotes/\(remoteName)/\(localBranch.name)",
+                head: commit
+            )
+
+            remoteBranches[mockRemote] = try commits(on: localBranch, since: nil).map {
+                guard let commit = $0 as? MockCommit else {
+                    fatalError("Invariant violation: commit is not a mock object")
+                }
+                return commit
+            }
+            fallthrough
+        case is MockTagReference:
+            pushes.append((credentials, reference))
+        default:
+            fatalError("Test invariant violation: unhandled type \(type(of: reference)) in \(#function)")
+        }
+
+        MockRepository.repoUpdated?(self)
+    }
+
+    mutating func commit(tree treeOID: ObjectID, parents: [Commitish], message: String, signature: Signature) throws -> Commitish {
+        let commit = MockCommit(
+            oid: .random(),
+            parentOIDs: parents.map(\.oid),
+            author: signature,
+            committer: signature,
+            message: message,
+            date: .now
+        )
+
+        objects[commit.oid] = commit
+        return commit
     }
 }
 
@@ -301,7 +385,7 @@ extension MockCommit {
                 this commit happens to have a body, but it also has
                 some trailers, which is also pretty cool!
 
-                Git-Trailer: present
+                Project-Id: TEST-8192
                 """
         ),
         .mock(
@@ -402,14 +486,14 @@ extension MockBranch {
 extension MockTagReference {
     static let first: Self = .lightweight(name: "0.0.1", tagging: .developCommit(indexFromRoot: 3))
     static let notAVersion: Self = .lightweight(name: "not-a-version", tagging: .developCommit(indexFromRoot: 2))
-    static let firstPrerelease: Self = .lightweight(name: "0.0.2-202310131751", tagging: .developCommit(indexFromRoot: 4))
-    static let secondPrerelease: Self = .lightweight(name: "0.0.2-202310131802", tagging: .developCommit(indexFromRoot: 5))
+    static let firstPrerelease: Self = .lightweight(name: "0.0.2-rc.1", tagging: .developCommit(indexFromRoot: 4))
+    static let secondPrerelease: Self = .lightweight(name: "0.0.2-rc.2", tagging: .developCommit(indexFromRoot: 5))
     static let secondRelease: Self = .lightweight(name: "0.1.0", tagging: .developCommit(indexFromRoot: 6))
     static let thirdReleaseNotOnDevelop: Self = .lightweight(name: "0.0.2", tagging: .hotfixNotOnDevelop)
 
     static let firstTrainRelease: Self = .lightweight(name: "train/0.1.0", tagging: .developCommit(indexFromRoot: 2))
-    static let firstTrainPrerelease: Self = .lightweight(name: "train/0.1.1-202310141157", tagging: .developCommit(indexFromRoot: 3))
-    static let secondTrainRelease: Self = .lightweight(name: "train/0.1.1-202310141200", tagging: .developCommit(indexFromRoot: 5))
+    static let firstTrainPrerelease: Self = .lightweight(name: "train/0.1.1-rc.1", tagging: .developCommit(indexFromRoot: 3))
+    static let secondTrainRelease: Self = .lightweight(name: "train/0.1.1", tagging: .developCommit(indexFromRoot: 5))
 
     static func lightweight(name: String, tagging commit: MockCommit) -> Self {
         .lightweight("refs/tags/\(name)", commit.oid)
@@ -443,6 +527,7 @@ extension MockTagReference {
 }
 
 extension MockRepository {
+    /// - Note: Because this is pass-by-value, modifications only work at the *start* of a test case.
     static var mock: Self = .init(
         objects: MockCommit.all,
         tags: MockTagReference.all,
@@ -454,6 +539,8 @@ extension MockRepository {
             .reduce(into: [:], { $0[$1] = .chase(oid: $1.oid) }),
         head: MockBranch.develop
     )
+
+    static var repoUpdated: ((MockRepository) -> ())?
 }
 
 extension Array<MockCommit> {

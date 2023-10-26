@@ -25,7 +25,8 @@ struct ConventionalCommit: Codable {
         let value: String
     }
 
-    enum VersionBump: String, Codable, Equatable {
+    enum VersionBump: Codable, Equatable {
+        case prerelease(channel: String)
         case patch
         case minor
         case major
@@ -81,6 +82,7 @@ fileprivate extension ConventionalCommit.Header {
 }
 
 fileprivate extension ConventionalCommit.Trailer {
+    /// - Bug: The "BREAKING CHANGE" option doesn't parse the text correctly.
     static let parser = Parse(input: Substring.self) {
         Peek { Prefix(1, allowing: .uppercaseLetters) }
         // Trailer key
@@ -200,8 +202,19 @@ extension Array<ConventionalCommit> {
         return result
     }
 
-    func nextVersion(after previous: Version) -> Version {
-        previous.bumping(versionBump)
+    func nextVersion(after previous: Version, prereleaseChannel: String? = nil) -> Version {
+        if let prereleaseChannel {
+            if previous.isPrerelease {
+                return previous
+                    .bumping(.prerelease(channel: prereleaseChannel))
+            } else {
+                return previous
+                    .bumping(versionBump)
+                    .bumpingPrerelease(channel: prereleaseChannel)
+            }
+        } else {
+            return previous.bumping(versionBump)
+        }
     }
 }
 

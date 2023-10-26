@@ -9,6 +9,7 @@ import Foundation
 
 protocol FileManagerish {
     var currentDirectoryPath: String { get }
+    var homeDirectoryForCurrentUser: URL { get }
 
     func fileExists(atPath: String) -> Bool
     func contents(atPath path: String) -> Data?

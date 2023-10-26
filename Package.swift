@@ -12,6 +12,10 @@ let package = Package(
             name: "EmbedChangelog",
             targets: ["EmbedChangelog"]
         ),
+        .plugin(
+            name: "EmbedVersion",
+            targets: ["EmbedVersion"]
+        ),
         .executable(
             name: "gluon",
             targets: ["gluon"]
@@ -22,7 +26,7 @@ let package = Package(
         // .package(url: /* package url */, from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", exact: "1.2.3"),
         .package(url: "https://github.com/jpsim/Yams", exact: "5.0.6"),
-        .package(url: "https://github.com/protonjohn/SwiftGit2", exact: "0.7.0"),
+        .package(url: "https://github.com/protonjohn/SwiftGit2", exact: "0.10.1"),
         .package(url: "https://github.com/mxcl/Version", exact: "2.0.1"),
         .package(url: "https://github.com/pointfreeco/swift-parsing", exact: "0.13.0"),
     ],
@@ -39,6 +43,13 @@ let package = Package(
         ),
         .plugin(
             name: "EmbedChangelog",
+            capability: .buildTool(),
+            dependencies: [
+                "gluon"
+            ]
+        ),
+        .plugin(
+            name: "EmbedVersion",
             capability: .buildTool(),
             dependencies: [
                 "gluon"

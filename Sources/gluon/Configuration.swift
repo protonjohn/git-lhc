@@ -17,13 +17,10 @@ struct Configuration: Codable, Equatable {
 
     struct BranchNameLinting: Codable, Equatable {
         let projectIdsInBranches: ProjectIDsInBranches?
-        let projectIdTrailerName: String?
-
         let projectIdRegexes: [String]
 
         static let `default`: Self = .init(
             projectIdsInBranches: .never,
-            projectIdTrailerName: nil,
             projectIdRegexes: [
                 "[A-Z]{2,10}-[0-9]{2,5}",
                 "(^|[^\\.\\-\\_0-9A-Z])([0-9]{3,5})",
@@ -51,13 +48,14 @@ struct Configuration: Codable, Equatable {
             .init(name: "ci", description: "Fixes or implements a continuous integration feature."),
         ]
     }
-
+    
     struct Train: Codable, Equatable {
         let name: String
         let tagPrefix: String?
     }
 
     let projectPrefix: String?
+    let projectIdTrailerName: String?
 
     let subjectMaxLineLength: Int?
     let bodyMaxLineLength: Int?
@@ -68,6 +66,7 @@ struct Configuration: Codable, Equatable {
 
     static let `default`: Self = .init(
         projectPrefix: nil,
+        projectIdTrailerName: nil,
         subjectMaxLineLength: nil,
         bodyMaxLineLength: 72,
         branchNameLinting: .default,
@@ -88,6 +87,18 @@ struct Configuration: Codable, Equatable {
             return .default
         }
     }()
+
+    static func get<V>(_ keyPath: KeyPath<Self, Optional<V>>) -> V {
+        if let configValue = Configuration.configuration[keyPath: keyPath].optional {
+            return configValue
+        }
+
+        guard let defaultValue = Configuration.default[keyPath: keyPath].optional else {
+            preconditionFailure("No default prerelease identifiers defined")
+        }
+
+        return defaultValue
+    }
 
     static func parsed() throws -> Self {
         guard let configFilePath = Gluon.configFilePath,

@@ -15,6 +15,8 @@ import SwiftGit2
 typealias ObjectID = OID
 
 protocol Repositoryish {
+    var defaultSignature: Signature { get throws }
+
     func HEAD() throws -> ReferenceType
     mutating func setHEAD(_ oid: ObjectID) throws
     func commit(_ oid: ObjectID) throws -> Commitish
@@ -23,7 +25,10 @@ protocol Repositoryish {
     func remoteBranch(named: String) throws -> Branchish
     func tag(named: String) throws -> TagReferenceish
     func tag(_ oid: ObjectID) throws -> Tagish
+    mutating func createTag(_ name: String, target: ObjectType, signature: Signature, message: String) throws -> TagReferenceish
     func allTags() throws -> [TagReferenceish]
+    mutating func push(remote remoteName: String, credentials: Credentials, reference: ReferenceType) throws
+    mutating func commit(tree treeOID: ObjectID, parents: [Commitish], message: String, signature: Signature) throws -> Commitish
 }
 
 extension Repositoryish {
@@ -159,8 +164,7 @@ protocol Tagish {
     var message: String { get }
 }
 
-protocol Commitish {
-    var oid: ObjectID { get }
+protocol Commitish: ObjectType {
     var parentOIDs: [ObjectID] { get }
 
     var author: Signature { get }
