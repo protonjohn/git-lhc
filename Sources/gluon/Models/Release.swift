@@ -205,7 +205,12 @@ extension Repositoryish {
                     // commit subject and body.
                     return try ConventionalCommit(message: $0.message)
                 } catch {
-                    Gluon.print(error, to: &FileHandle.stderr)
+                    Gluon.print("""
+                        Warning: commit \($0.oid) does not have a valid format:
+                        \($0.message)
+                        """,
+                        to: &FileHandle.stderr
+                    )
                     return nil
                 }
             }

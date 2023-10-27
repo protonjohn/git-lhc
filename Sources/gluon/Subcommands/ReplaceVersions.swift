@@ -122,8 +122,10 @@ struct ReplaceVersions: ParsableCommand {
 
         for replacement in replacements {
             let path = baseURL
-                .appending(component: replacement.file, directoryHint: .notDirectory)
-                .path()
+                .appending(
+                    path: replacement.file,
+                    directoryHint: .notDirectory
+                ).path()
 
             let item = replacement.item ?? .fullVersion
             let value: String
