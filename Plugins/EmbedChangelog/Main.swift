@@ -5,6 +5,7 @@
 import Foundation
 import PackagePlugin
 
+@main
 struct EmbedChangelog {
     static let outputPathKey = "GLUON_CHANGELOG_OUTPUT_PATH"
 

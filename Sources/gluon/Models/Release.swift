@@ -318,6 +318,11 @@ extension Repositoryish {
                 untaggedRangePrereleaseChannel: untaggedPrereleaseChannel,
                 forceLatestVersionTo: forcedVersion
             ).first
+        } else if let lastVersion {
+            return try release(
+                for: train,
+                exactVersion: lastVersion.version
+            )
         } else {
             return nil
         }

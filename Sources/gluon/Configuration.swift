@@ -48,10 +48,38 @@ struct Configuration: Codable, Equatable {
             .init(name: "ci", description: "Fixes or implements a continuous integration feature."),
         ]
     }
+
+    enum VersionReplacementFormat: String, Codable {
+        case json
+        case yaml
+        case plist
+        case plaintext
+
+        var isStructured: Bool {
+            self != .plaintext
+        }
+    }
+
+    enum VersionReplacementItem: String, Codable {
+        case version
+        case fullVersion
+        case identifiers
+        case prereleaseIdentifiers
+        case buildIdentifiers
+    }
+
+    struct VersionReplacement: Codable, Equatable {
+        let key: String
+        let file: String
+        let item: VersionReplacementItem?
+        let format: VersionReplacementFormat?
+    }
     
     struct Train: Codable, Equatable {
         let name: String
+        let displayName: String?
         let tagPrefix: String?
+        let replace: [VersionReplacement]?
     }
 
     let projectPrefix: String?

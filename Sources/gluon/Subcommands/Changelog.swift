@@ -11,6 +11,10 @@ import SwiftGit2
 import Version
 
 struct Changelog: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Display the changelog for the specified version(s)."
+    )
+
     @OptionGroup()
     var parent: Gluon.Options
 

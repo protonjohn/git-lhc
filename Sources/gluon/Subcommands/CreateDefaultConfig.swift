@@ -10,6 +10,10 @@ import ArgumentParser
 import Yams
 
 struct CreateDefaultConfig: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Create a default configuration file at the specified path."
+    )
+
     @Argument()
     var configPath: String = ".gluon.yml"
 
@@ -18,8 +22,17 @@ struct CreateDefaultConfig: ParsableCommand {
             configPath = "\(Gluon.fileManager.currentDirectoryPath)/\(configPath)"
         }
 
+        if Gluon.fileManager.fileExists(atPath: configPath) {
+            guard Gluon.promptForContinuation("File at \(configPath) already exists.") else {
+                throw CreateDefaultConfigError.userAborted
+            }
+
+            try Gluon.fileManager.removeItem(atPath: configPath)
+        }
+
         let encoder = YAMLEncoder()
         let config = try encoder.encode(Configuration.default)
+
         guard Gluon.fileManager.createFile(
             atPath: configPath,
             contents: config.data(using: .utf8)
@@ -27,4 +40,8 @@ struct CreateDefaultConfig: ParsableCommand {
             throw GluonError.invalidPath(configPath)
         }
     }
+}
+
+enum CreateDefaultConfigError: String, Error {
+    case userAborted = "User aborted."
 }

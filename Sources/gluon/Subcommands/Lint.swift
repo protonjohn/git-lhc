@@ -10,6 +10,10 @@ import ArgumentParser
 import SwiftGit2
 
 struct Lint: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Lint a range of commits according to the conventional commit format."
+    )
+
     @OptionGroup()
     var parent: Gluon.Options
 

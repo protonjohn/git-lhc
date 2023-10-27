@@ -184,7 +184,7 @@ class ChangelogTests: GluonTestCase {
             branchNameLinting: nil,
             commitCategories: Configuration.default.commitCategories,
             trains: [
-                .init(name: "test", tagPrefix: "train/")
+                .init(name: "test", tagPrefix: "train/", replace: nil)
             ]
         )
 

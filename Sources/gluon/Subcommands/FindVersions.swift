@@ -10,6 +10,10 @@ import ArgumentParser
 import SwiftGit2
 
 struct FindVersions: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Find releases that introduced a commit with the given task ID(s)."
+    )
+
     @OptionGroup()
     var parent: Gluon.Options
 

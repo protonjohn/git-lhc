@@ -15,12 +15,7 @@ struct MockFileManager: FileManagerish {
     var root: MockFile
 
     func tree(from path: String) -> [MockFile] {
-        guard #available(macOS 13, *) else { return [] }
-
-        guard let currentDirectory = URL(string: currentDirectoryPath) else {
-            return []
-        }
-        let url = URL(string: path) ?? URL(filePath: path, relativeTo: currentDirectory)
+        let url = URL(string: path)!
 
         var components = url.pathComponents
         var tree = [root]
@@ -43,36 +38,70 @@ struct MockFileManager: FileManagerish {
         return []
     }
 
-    mutating func setNode(_ node: MockFile, atPath path: String) throws {
+    mutating func setNode(_ node: MockFile?, atPath path: String) throws {
         var tree = tree(from: path)
         guard !tree.isEmpty else {
-            throw MockFileError.noSuchFileOrDirectory(path: path)
+            throw POSIXError(.ENOENT)
         }
 
         var node = node
         while let last = tree.last {
-            switch last {
-            case .directory(let name, var contents):
-                contents.append(node)
+            if node != nil {
+                // We want to set the node as a child of the current path.
+                guard case .directory(let name, var contents) = last else {
+                    fatalError("Invariant violation: can't put a file in a file")
+                }
+
+                contents.removeAll(where: { $0.name == node?.name })
+
+                contents.append(node!)
                 node = .directory(name: name, contents: contents)
-            default:
-                fatalError("Invariant violation: can't put a file in a file")
+            } else {
+                // Special case: we've called `setNode(nil, atPath:)`, which means that
+                // we want to remove a file.
+                // Traverse one more level up in the tree to get the containing directory.
+                tree.removeLast()
+                guard case .directory(let parentName, var parentContents) = tree.last else {
+                    fatalError("Invariant violation: tried to set filesystem root to nil")
+                }
+                guard let index = parentContents.firstIndex(where: { $0.name == last.name }) else {
+                    throw POSIXError(.ENOENT)
+                }
+                parentContents.remove(at: index)
+                node = .directory(name: parentName, contents: parentContents)
             }
 
             tree.removeLast()
         }
 
-        root = node
+        root = node!
     }
 
     func fileExists(atPath path: String) -> Bool {
         !tree(from: path).isEmpty
     }
 
+    func fileExists(atPath path: String, isDirectory: inout Bool?) -> Bool {
+        let tree = tree(from: path)
+        guard !tree.isEmpty else { return false }
+
+        if case .directory = tree.last {
+            isDirectory = true
+        } else {
+            isDirectory = false
+        }
+
+        return true
+    }
+
     mutating func createFile(atPath path: String, contents data: Data?, attributes attr: [FileAttributeKey : Any]?) -> Bool {
         guard let url = URL(string: path) else { return false }
 
         do {
+            guard !fileExists(atPath: path) else {
+                return false
+            }
+
             try setNode(
                 .file(
                     name: url.lastPathComponent,
@@ -84,6 +113,10 @@ struct MockFileManager: FileManagerish {
         } catch {
             return false
         }
+    }
+
+    mutating func removeItem(atPath path: String) throws {
+        try setNode(nil, atPath: path)
     }
 
     func contents(atPath path: String) -> Data? {
@@ -116,6 +149,7 @@ struct MockFileManager: FileManagerish {
                 .directory(name: "Users", contents: [
                     .directory(name: "test", contents: [
                         .directory(name: "repo", contents: [
+                            .directory(name: ".git", contents: []),
                             .file(name: "file", contents: nil),
                             .file(name: ".gluon.yml", contents: .configFile)
                         ])
@@ -124,8 +158,4 @@ struct MockFileManager: FileManagerish {
             ]
         )
     )
-}
-
-enum MockFileError: Error {
-    case noSuchFileOrDirectory(path: String)
 }

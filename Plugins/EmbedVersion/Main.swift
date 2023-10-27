@@ -8,25 +8,23 @@
 import Foundation
 import PackagePlugin
 
+@main
 struct EmbedVersion {
-    static let outputPathKey = "GLUON_CHANGELOG_OUTPUT_PATH"
+    static let trainNameKey = "GLUON_TRAIN_NAME"
 
-    static var outputPath: String? {
-        ProcessInfo.processInfo.environment[Self.outputPathKey]
+    static var trainName: String? {
+        ProcessInfo.processInfo.environment[Self.trainNameKey]
     }
 
-    func createBuildCommands(toolPath: Path) throws -> [Command] {
-        let path = Self.outputPath ?? "changelog.json"
-
+    func createBuildCommands(toolPath: Path, trainName: String) throws -> [Command] {
         return [
             .buildCommand(
                 displayName: "Gluon",
                 executable: toolPath,
                 arguments: [
-                    "changelog",
-                    "--format", "json",
-                    "--show", "all",
-                    "-o", path
+                    "replace-versions",
+                    "--train",
+                    trainName
                 ]
             )
         ]
@@ -36,7 +34,9 @@ struct EmbedVersion {
 extension EmbedVersion: BuildToolPlugin {
     func createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
         let tool = try context.tool(named: "gluon")
-        return try createBuildCommands(toolPath: tool.path)
+
+        let trainName = Self.trainName ?? target.name
+        return try createBuildCommands(toolPath: tool.path, trainName: trainName)
     }
 }
 
@@ -46,8 +46,9 @@ import XcodeProjectPlugin
 extension EmbedVersion: XcodeBuildToolPlugin {
     func createBuildCommands(context: XcodePluginContext, target: XcodeTarget) throws -> [Command] {
         let tool = try context.tool(named: "gluon")
-        let files = target.inputFiles.filter { $0.path.lastComponent == "Info.plist" }
-        return try createBuildCommands(toolPath: tool.path)
+
+        let trainName = Self.trainName ?? target.displayName
+        return try createBuildCommands(toolPath: tool.path, trainName: trainName)
     }
 }
 

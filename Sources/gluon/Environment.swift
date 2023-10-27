@@ -57,24 +57,7 @@ enum GluonEnvironment: String, EnvironmentVariable {
     var defaultValue: String? {
         switch self {
         case .configFilePath:
-            guard #available(macOS 13.0, *) else { return nil }
-
-            let fileName = ".gluon.yml"
-            var url: URL = .currentDirectory().appending(path: fileName)
-
-            while !Gluon.fileManager.fileExists(atPath: url.path()) {
-                url = url.deletingLastPathComponent()
-
-                guard url.path() != "/" &&
-                        (try? url.canonicalPath) != "/" else {
-                    return nil
-                }
-
-                url = url
-                    .appending(component: "../", directoryHint: .isDirectory)
-                    .appending(component: fileName, directoryHint: .notDirectory)
-            }
-            return url.path()
+            return Gluon.fileManager.traverseUpwardsUntilFinding(fileName: ".gluon.yml")
         case .trainName:
             return nil
         }

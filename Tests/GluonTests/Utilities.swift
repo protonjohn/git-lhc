@@ -55,3 +55,6 @@ extension Array {
         return self[1]
     }
 }
+
+extension String: Error {
+}

@@ -11,6 +11,10 @@ import ArgumentParser
 import Version
 
 struct CreateRelease: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Tag a release at HEAD, deriving a version according to the passed options if no version is specified."
+    )
+
     @OptionGroup()
     var parent: Gluon.Options
 
@@ -43,17 +47,6 @@ struct CreateRelease: ParsableCommand {
 
     @Flag(help: "Add the current timestamp as a build identifier to the version tag.")
     var buildTimestamp: Bool = false
-
-    @Flag(
-        help: "Replace versions in files according to the configured train. Requires --train to be specified."
-    )
-    var replaceVersions: Bool = false
-
-    @Flag(
-        inversion: .prefixedNo,
-        help: "Don't create a tag - just modify the version in the files configured for the train."
-    )
-    var tag: Bool = true
 
     @Flag(help: "Push the resulting tag to the specified remote (see the '--remote' option.)")
     var push: Bool = false
@@ -105,10 +98,6 @@ struct CreateRelease: ParsableCommand {
                 }
             }
         }
-
-        guard !(train == nil && replaceVersions) else {
-            throw CreateReleaseError.cantReplaceVersionsWithoutTrain
-        }
     }
 
     func push(repo: inout Repositoryish, tag: TagReferenceish) throws {
@@ -143,7 +132,7 @@ struct CreateRelease: ParsableCommand {
 
         var message = "release: "
         if let train {
-            message += "\(train.name) "
+            message += "\(train.displayName ?? train.name) "
         }
         message += release.versionString
 
@@ -193,7 +182,6 @@ struct CreateRelease: ParsableCommand {
             fatalError("Invariant error: no release found or created")
         }
 
-        guard tag else { return }
         try createTag(in: &repo, for: release)
     }
 }

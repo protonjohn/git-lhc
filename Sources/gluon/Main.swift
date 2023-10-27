@@ -13,18 +13,32 @@ import SwiftGit2
 @main
 struct Gluon: ParsableCommand {
     static var configuration = CommandConfiguration(
+        abstract: "An integration tool for easier cross-team collaboration.",
         subcommands: [
             Lint.self,
             Changelog.self,
             CreateRelease.self,
             FindVersions.self,
+            ReplaceVersions.self,
             CreateDefaultConfig.self,
         ]
     )
 
     struct Options: ParsableArguments {
         @Option(help: "The path to the repository.")
-        var repo: String = Gluon.fileManager.currentDirectoryPath
+        var repo: String = {
+            guard let path = Gluon.fileManager.traverseUpwardsUntilFinding(fileName: ".git", isDirectory: true),
+                  let url = URL(string: path) else {
+                return Gluon.fileManager.currentDirectoryPath
+            }
+
+            var result = url.deletingLastPathComponent().path()
+            while result.hasSuffix("/") {
+                result.removeLast()
+            }
+
+            return result
+        }()
     }
 }
 
