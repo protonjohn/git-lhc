@@ -51,7 +51,7 @@ class CreateReleaseTests: GluonTestCase {
     func testCreatingNewProdRelease() throws {
         try subtestCreatingNewProdRelease()
 
-        let train: Configuration.Train = .init(name: "test", tagPrefix: "train/", replace: nil)
+        let train: Configuration.Train = .init(name: "test", displayName: nil, tagPrefix: "train/", replace: nil)
         Configuration.configuration = .init(
             projectPrefix: nil,
             projectIdTrailerName: nil,
@@ -134,7 +134,7 @@ class CreateReleaseTests: GluonTestCase {
             MockRepository.mock = oldRepo
         }
 
-        let train: Configuration.Train = .init(name: "test", tagPrefix: "train/", replace: nil)
+        let train: Configuration.Train = .init(name: "test", displayName: nil, tagPrefix: "train/", replace: nil)
         Configuration.configuration = .init(
             projectPrefix: nil,
             projectIdTrailerName: nil,

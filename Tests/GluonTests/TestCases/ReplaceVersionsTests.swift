@@ -79,6 +79,7 @@ class ReplaceVersionsTests: GluonTestCase {
         trains: [
             .init(
                 name: "test",
+                displayName: nil,
                 tagPrefix: nil,
                 replace: textReplacements.map {
                     .init(key: $0.0, file: "version.txt", item: $0.1, format: nil)
