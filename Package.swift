@@ -39,6 +39,9 @@ let package = Package(
                 "SwiftGit2",
                 "Version",
                 .product(name: "Parsing", package: "swift-parsing"),
+            ],
+            resources: [
+                .process("gluon.example.yml")
             ]
         ),
         .plugin(

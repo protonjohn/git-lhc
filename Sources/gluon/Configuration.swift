@@ -45,6 +45,7 @@ struct Configuration: Codable, Equatable {
             .init(name: "test", description: "Fixes or implements a test."),
             .init(name: "refactor", description: "Changes code, but does not implement a fix or feature."),
             .init(name: "build", description: "Changes the build system or external dependencies."),
+            .init(name: "doc", description: "Corrects/updates documentation for a feature or architectural decision."),
             .init(name: "ci", description: "Fixes or implements a continuous integration feature."),
         ]
     }
@@ -145,6 +146,18 @@ struct Configuration: Codable, Equatable {
         }
         return configTrain
     }
+}
+
+extension Configuration {
+    static let example: Self? = {
+        guard let path = Bundle.module.path(forResource: "gluon.example", ofType: "yml") else {
+            return nil
+        }
+        guard let contents = FileManager.default.contents(atPath: path) else {
+            return nil
+        }
+        return try? YAMLDecoder().decode(Configuration.self, from: contents)
+    }()
 }
 
 enum ConfigurationError: Error, CustomStringConvertible {

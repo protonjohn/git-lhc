@@ -1,5 +1,5 @@
 //
-//  CreateDefaultConfigTests.swift
+//  ConfigurationTests.swift
 //  
 //
 //  Created by John Biggs on 13.10.23.
@@ -11,7 +11,7 @@ import Yams
 
 @testable import gluon
 
-class CreateDefaultConfigTests: GluonTestCase {
+class ConfigurationTests: GluonTestCase {
     func testConfigFileCreated() throws {
         var createDefaultConfig = try CreateDefaultConfig.parse([])
         try createDefaultConfig.run()
@@ -25,5 +25,10 @@ class CreateDefaultConfigTests: GluonTestCase {
         let config = try decoder.decode(Configuration.self, from: contents)
 
         XCTAssertEqual(config, Configuration.default)
+    }
+
+    func testExampleConfigParsesCorrectly() throws {
+        let config = Configuration.example
+        XCTAssertNotNil(config)
     }
 }

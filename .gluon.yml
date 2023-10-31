@@ -17,5 +17,7 @@ commitCategories:
   description: Changes code, but does not implement a fix or feature.
 - name: build
   description: Changes the build system or external dependencies.
+- name: doc
+  description: Corrects or updates documentation for a feature or architectural decision.
 - name: ci
   description: Fixes or implements a continuous integration feature.
