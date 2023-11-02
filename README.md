@@ -7,7 +7,8 @@ You can use Gluon to create new release tags, generate changelogs from Git histo
 first introduced a change mentioning a task ID (i.e., from Jira or GitLab), embed the latest version tag in your project
 files, and more.
 
-Gluon is currently under active development. Try running the `help` command for some usage examples.
+Gluon is currently under active development. Try running the `help` command for some usage examples. Every minor
+release before version 1.0.0 should be considered to contain breaking changes.
 
 ## Why the name Gluon?
 

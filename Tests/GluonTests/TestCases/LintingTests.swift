@@ -37,8 +37,8 @@ class LintingTests: GluonTestCase {
             try invoke()
             XCTFail("Should not have succeeded when linting a branch with invalid subject")
         } catch {
-            guard let expected = error as? CommitLintingError,
-                  case .subjectDoesNotMatchRegex = expected else {
+            guard let expected = error as? LintingError,
+                  case .subjectDoesNotMatchRegex = expected.reason else {
                 XCTFail("Expected invalid commit error but instead got \(error)")
                 return
             }
@@ -49,8 +49,8 @@ class LintingTests: GluonTestCase {
             try invoke()
             XCTFail("Should not have succeeded when linting a branch with invalid category")
         } catch {
-            guard let expected = error as? CommitLintingError,
-                  case .subjectHasUnrecognizedCategory = expected else {
+            guard let expected = error as? LintingError,
+                  case .subjectHasUnrecognizedCategory = expected.reason else {
                 XCTFail("Expected invalid commit error but instead got \(error)")
                 return
             }
@@ -87,15 +87,16 @@ class LintingTests: GluonTestCase {
             do {
                 try invoke()
                 XCTFail("Branch with trailers mismatched from branch name should throw error, but got success")
-            } catch {
-                guard case let CommitLintingError.missingSpecificTrailer(name, value, commit) = error else {
-                    XCTFail("Threw unexpected error: \(error)")
+            } catch let lintingError as LintingError {
+                guard case let .missingSpecificTrailer(name, value) = lintingError.reason else {
                     return
                 }
 
                 XCTAssertEqual(name, "Project-Id", "Name of expected missing trailer is incorrect")
                 XCTAssertEqual(value, "TEST-5678", "Value of expected missing trailer is incorrect")
-                XCTAssertEqual(commit.oid, MockCommit.withProjectId.oid)
+                XCTAssertEqual(lintingError.offendingCommit.oid, MockCommit.withProjectId.oid)
+            } catch {
+                XCTFail("Threw unexpected error: \(error)")
             }
         }
     }

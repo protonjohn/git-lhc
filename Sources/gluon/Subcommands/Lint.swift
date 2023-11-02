@@ -84,7 +84,7 @@ struct Lint: ParsableCommand {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
 
         guard let subject = components.first else {
-            throw CommitLintingError.missingSubject(commit)
+            throw LintingError(commit, .missingSubject)
         }
 
         try lint(subject: subject, of: commit)
@@ -99,21 +99,21 @@ struct Lint: ParsableCommand {
     func lint(subject: String, of commit: Commitish) throws {
         if let subjectMaxLength = Self.config.subjectMaxLineLength,
            subject.count > subjectMaxLength {
-            throw CommitLintingError.subjectTooLong(subject: subject, of: commit, configuredMax: subjectMaxLength)
+            throw LintingError(commit, .subjectTooLong(configuredMax: subjectMaxLength))
         }
 
         let regex = "^([a-z]+)(\\([a-zA-Z0-9\\-\\_]+\\)){0,1}(!){0,1}: .*"
         guard let match = try? Regex(regex).wholeMatch(in: subject) else {
-            throw CommitLintingError.subjectDoesNotMatchRegex(subject: subject, of: commit, regex: regex)
+            throw LintingError(commit, .subjectDoesNotMatchRegex(regex: regex))
         }
         guard let categorySubstring = match.output[1].substring else {
-            throw CommitLintingError.subjectHasMissingCategory(subject: subject, of: commit)
+            throw LintingError(commit, .subjectHasMissingCategory)
         }
 
         let category = String(categorySubstring)
         let categories = Configuration.get(\.commitCategories)
         guard categories.contains(where: { $0.name == category }) != false else {
-            throw CommitLintingError.subjectHasUnrecognizedCategory(subject: subject, category: category, of: commit)
+            throw LintingError(commit, .subjectHasUnrecognizedCategory(category: category))
         }
     }
 
@@ -123,7 +123,7 @@ struct Lint: ParsableCommand {
            paragraph.split(separator: "\n")
                .contains(where: { line in line.count > bodyMaxColumns })
         }) {
-            throw CommitLintingError.lineInBodyTooLong(of: commit, configuredMax: bodyMaxColumns)
+            throw LintingError(commit, .lineInBodyTooLong(configuredMax: bodyMaxColumns))
         }
     }
 
@@ -137,7 +137,7 @@ struct Lint: ParsableCommand {
         do {
             trailers = try commit.trailers
         } catch {
-            throw CommitLintingError.trailersMissing(from: commit, underlyingError: error)
+            throw LintingError(commit, .trailersMissing(underlyingError: error))
         }
 
         for var projectId in projectIds {
@@ -149,61 +149,60 @@ struct Lint: ParsableCommand {
                 $0.key == trailerName &&
                 $0.value == projectId
             }) else {
-                throw CommitLintingError.missingSpecificTrailer(named: trailerName, withValue: projectId, from: commit)
+                throw LintingError(commit, .missingSpecificTrailer(named: trailerName, withValue: projectId))
             }
         }
     }
 }
 
-enum CommitLintingError: Error, CustomStringConvertible {
-    case missingSubject(Commitish)
-    case subjectTooLong(subject: String, of: Commitish, configuredMax: Int)
-    case subjectDoesNotMatchRegex(subject: String, of: Commitish, regex: String)
-    case subjectHasMissingCategory(subject: String, of: Commitish)
-    case subjectHasUnrecognizedCategory(subject: String, category: String, of: Commitish)
-    case lineInBodyTooLong(of: Commitish, configuredMax: Int)
-    case trailersMissing(from: Commitish, underlyingError: Error)
-    case missingSpecificTrailer(named: String, withValue: String?, from: Commitish)
+struct LintingError: Error, CustomStringConvertible {
+    enum Reason {
+        case missingSubject
+        case subjectTooLong(configuredMax: Int)
+        case subjectDoesNotMatchRegex(regex: String)
+        case subjectHasMissingCategory
+        case subjectHasUnrecognizedCategory(category: String)
+        case lineInBodyTooLong(configuredMax: Int)
+        case trailersMissing(underlyingError: Error)
+        case missingSpecificTrailer(named: String, withValue: String?)
+    }
+
+    let offendingCommit: Commitish
+    let reason: Reason
 
     var description: String {
-        let offendingCommit: Commitish?
         var result: String
 
-        switch self {
-        case let .missingSubject(commit):
+        switch reason {
+        case .missingSubject:
             result = "Commit is missing subject"
-            offendingCommit = commit
-        case let .subjectTooLong(_, commit, configuredMax):
+        case let .subjectTooLong(configuredMax):
             result = "Commit has a subject line that is longer than \(configuredMax) characters"
-            offendingCommit = commit
-        case let .subjectDoesNotMatchRegex(_, commit, _):
+        case .subjectDoesNotMatchRegex:
             result = "Commit subject does not meet conventional commit specifications"
-            offendingCommit = commit
-        case let .subjectHasUnrecognizedCategory(_, category, commit):
+        case let .subjectHasUnrecognizedCategory(category):
             result = "Commit subject has unrecognized category '\(category)'"
-            offendingCommit = commit
-        case let .subjectHasMissingCategory(_, commit):
+        case .subjectHasMissingCategory:
             result = "Commit subject has missing category"
-            offendingCommit = commit
-        case let .lineInBodyTooLong(commit, configuredMax):
+        case let .lineInBodyTooLong(configuredMax):
             result = "Commit body has one or more lines longer than \(configuredMax) characters"
-            offendingCommit = commit
-        case let .trailersMissing(commit, underlyingError):
+        case let .trailersMissing(underlyingError):
             result = "Commit is missing one or more trailers (\(underlyingError))"
-            offendingCommit = commit
-        case let .missingSpecificTrailer(name, expectedValue, commit):
+        case let .missingSpecificTrailer(name, expectedValue):
             result = "Commit is missing a '\(name)' trailer"
             if let expectedValue {
                 result += " with expected value '\(expectedValue)'"
             }
-            offendingCommit = commit
         }
 
-        if let offendingCommit {
-            result += ":\n\(offendingCommit.message)"
-        }
-
+        result += ":\n\(offendingCommit.description)"
         return result
+    }
+}
+
+extension LintingError {
+    init(_ commit: Commitish, _ reason: Reason) {
+        self.init(offendingCommit: commit, reason: reason)
     }
 }
 

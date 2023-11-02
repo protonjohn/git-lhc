@@ -74,6 +74,15 @@ extension Bool {
     }
 }
 
+extension String {
+    func indented(times: Int = 1, prefix: String = "    ") -> String {
+        let lines = components(separatedBy: "\n")
+        return lines
+            .map { String(repeating: prefix, count: times) + $0 }
+            .joined(separator: "\n")
+    }
+}
+
 extension ExpressibleByArgument where Self: CaseIterable & RawRepresentable, RawValue == String {
     static var possibleValues: String { allCases.map(\.rawValue).joined(separator: ", ") }
 }

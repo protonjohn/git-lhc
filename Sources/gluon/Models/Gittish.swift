@@ -164,7 +164,7 @@ protocol Tagish {
     var message: String { get }
 }
 
-protocol Commitish: ObjectType {
+protocol Commitish: ObjectType, CustomStringConvertible {
     var parentOIDs: [ObjectID] { get }
 
     var author: Signature { get }
@@ -173,6 +173,21 @@ protocol Commitish: ObjectType {
     var date: Date { get }
 
     var trailers: [Trailerish] { get throws }
+}
+
+extension Commitish {
+    var description: String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "%a %b %e %H:%M:%S %Y %Z"
+
+        return """
+        commit \(oid.description)
+        Author: \(author.name) <\(author.email)>
+        Date:   \(dateFormatter.string(from: date))
+
+        \(message.indented())
+        """
+    }
 }
 
 protocol Trailerish {
