@@ -8,30 +8,23 @@
 import Foundation
 
 protocol Printer {
-    mutating func print(_ items: Any..., separator: String, terminator: String)
-    mutating func print(_ items: Any..., separator: String, terminator: String, to stream: inout TextOutputStream)
+    mutating func print(_ item: String, error: Bool)
 }
 
 struct SwiftPrinter: Printer {
-    func print(_ items: Any..., separator: String, terminator: String) {
-        Swift.print(items, separator: separator, terminator: terminator)
+    func print(_ item: String, error: Bool) {
+        var output: TextOutputStream = error ? FileHandle.standardError : FileHandle.standardOutput
+        Swift.print(item, separator: "", terminator: "", to: &output)
     }
-
-    func print(_ items: Any..., separator: String, terminator: String, to stream: inout TextOutputStream) {
-        Swift.print(items, separator: separator, terminator: terminator, to: &stream)
-    }
-
-    static let `default`: Self = .init()
 }
 
 extension Gluon {
-    static var printer: Printer = SwiftPrinter.default
+    static var printer: Printer = SwiftPrinter()
 
-    static func print(_ items: Any..., separator: String = " ", terminator: String = "\n", to stream: inout TextOutputStream) {
-        printer.print(items, separator: separator, terminator: terminator, to: &stream)
-    }
-
-    static func print(_ items: Any..., separator: String = " ", terminator: String = "\n") {
-        printer.print(items, separator: separator, terminator: terminator)
+    static func print(_ items: Any..., separator: String = " ", terminator: String = "\n", error: Bool = false) {
+        printer.print(
+            items.map { String(describing: $0) }.joined(separator: separator) + terminator,
+            error: error
+        )
     }
 }

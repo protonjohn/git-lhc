@@ -227,7 +227,7 @@ extension Repositoryish {
                     Warning: \(badCommits) commit\(badCommits == 1 ? "" : "s") did not match the conventional commit \
                     format, or had a type that was not configured in the repository's gluon configuration.
                     """,
-                    to: &FileHandle.stderr
+                    error: true
                 )
             }
 

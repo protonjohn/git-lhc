@@ -37,12 +37,12 @@ struct Lint: ParsableCommand {
             do {
                 ciStartOID = try lintBaseFromGitlabCI(for: repo, head: head)
             } catch {
-                Gluon.print("Could not invoke lint job from CI: \(error)", to: &FileHandle.stderr)
+                Gluon.print("Could not invoke lint job from CI: \(error)", error: true)
                 return
             }
 
             guard let ciStartOID else {
-                Gluon.print("Could not determine commit base object for linting. Aborting.", to: &FileHandle.stderr)
+                Gluon.print("Could not determine commit base object for linting. Aborting.", error: true)
                 return
             }
             startOID = ciStartOID
@@ -53,8 +53,21 @@ struct Lint: ParsableCommand {
         
         let (branch, commits) = try repo.commits(since: startOID)
 
+        var errors: [LintingError] = []
         for commit in commits {
-            try lint(commit: commit, branch: branch)
+            do {
+                try lint(commit: commit, branch: branch)
+            } catch let lintingError as LintingError {
+                errors.append(lintingError)
+            }
+        }
+
+        guard errors.isEmpty else {
+            if errors.count == 1, let first = errors.first {
+                throw first
+            } else {
+                throw MultipleLintingErrors(errors: errors)
+            }
         }
 
         Gluon.print("Commit linting passed. No issues found.")
@@ -152,6 +165,17 @@ struct Lint: ParsableCommand {
                 throw LintingError(commit, .missingSpecificTrailer(named: trailerName, withValue: projectId))
             }
         }
+    }
+}
+
+struct MultipleLintingErrors: Error, CustomStringConvertible {
+    let errors: [LintingError]
+
+    var description: String {
+        """
+        \(errors.count) commits have errors:
+        \(errors.map(\.description).joined(separator: "\n\n"))
+        """
     }
 }
 

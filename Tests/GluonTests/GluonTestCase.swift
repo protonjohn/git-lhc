@@ -19,14 +19,14 @@ class GluonTestCase: XCTestCase {
 
     var testOutput: String {
         let printer = Gluon.printer as! MockPrinter
-        return printer.printedItems.filter { $0.stream == nil }
+        return printer.printedItems.filter { !$0.error }
             .map(\.0)
             .joined()
     }
 
     var errorOutput: String {
         let printer = Gluon.printer as! MockPrinter
-        return printer.printedItems.filter { $0.stream != nil }
+        return printer.printedItems.filter(\.error)
             .map(\.0)
             .joined()
     }

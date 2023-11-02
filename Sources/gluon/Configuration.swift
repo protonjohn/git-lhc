@@ -111,7 +111,7 @@ struct Configuration: Codable, Equatable {
                 Warning: could not decode configuration file at \
                 \(String(describing: Gluon.configFilePath)): \(error)
                 """,
-                to: &FileHandle.stderr
+                error: true
             )
             return .default
         }

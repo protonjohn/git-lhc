@@ -74,7 +74,7 @@ extension Configuration.Train {
         do {
             return try Configuration.train(named: trainName)
         } catch {
-            Gluon.print(error, to: &FileHandle.stderr)
+            Gluon.print(error, error: true)
             return nil
         }
     }

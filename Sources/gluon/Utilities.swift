@@ -39,10 +39,6 @@ extension FileHandle: TextOutputStream {
     }
 }
 
-extension FileHandle {
-    static var stderr: TextOutputStream = FileHandle.standardError
-}
-
 extension RandomAccessCollection {
     /// - Warning: The collection *must* be sorted according to the predicate.
     func binarySearch(predicate: (Iterator.Element) -> Bool) -> Index {
