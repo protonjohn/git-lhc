@@ -17,7 +17,7 @@ struct Lint: ParsableCommand {
     @OptionGroup()
     var parent: Gluon.Options
 
-    @Option(help: "Where to start linting. Defaults to the parent commit of HEAD, if no CI env variables are set.")
+    @Option(help: "Where to start linting. Defaults to the parent commit of HEAD, if no CI environment is detected.")
     var since: String?
 
     static var config: Configuration {
@@ -41,7 +41,10 @@ struct Lint: ParsableCommand {
                 return
             }
 
-            guard let ciStartOID else { return }
+            guard let ciStartOID else {
+                Gluon.print("Could not determine commit base object for linting. Aborting.", to: &FileHandle.stderr)
+                return
+            }
             startOID = ciStartOID
         }
         if startOID == nil {
@@ -53,6 +56,8 @@ struct Lint: ParsableCommand {
         for commit in commits {
             try lint(commit: commit, branch: branch)
         }
+
+        Gluon.print("Commit linting passed. No issues found.")
     }
 
     func lintBaseFromGitlabCI(for repo: Repositoryish, head: ReferenceType) throws -> ObjectID? {
