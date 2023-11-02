@@ -176,9 +176,10 @@ protocol Commitish: ObjectType, CustomStringConvertible {
 }
 
 extension Commitish {
-    var description: String {
+    public var description: String {
         let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "%a %b %e %H:%M:%S %Y %Z"
+        // Sun Nov 12 16:20:42 2023 +0100
+        dateFormatter.dateFormat = "EEE MMM d HH:MM:SS YYYY Z"
 
         return """
         commit \(oid.description)
