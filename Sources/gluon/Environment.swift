@@ -37,16 +37,20 @@ enum XcodeEnvironment: String, EnvironmentVariable {
 enum GitlabEnvironment: String, EnvironmentVariable {
     case CI = "CI"
     case isManualJob = "CI_JOB_MANUAL"
+
     case jobURL = "CI_JOB_URL"
-    case commitBranch = "CI_COMMIT_BRANCH"
     case commitTag = "CI_COMMIT_TAG"
+    case commitSha = "CI_COMMIT_SHA"
+    case commitBranch = "CI_COMMIT_BRANCH"
+    case defaultBranch = "CI_DEFAULT_BRANCH"
+    case commitBeforeChange = "CI_COMMIT_BEFORE_SHA"
+    case mergeRequestDiffBaseSha = "CI_MERGE_REQUEST_DIFF_BASE_SHA"
     case mergeRequestSourceBranch = "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
 
-    var defaultValue: String? {
-        switch self {
-        default:
-            return nil
-        }
+    var defaultValue: String? { nil }
+
+    static var isCI: Bool {
+        Self.CI.value != nil
     }
 }
 

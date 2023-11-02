@@ -23,7 +23,6 @@ enum BuildEnvironmentVariables: String {
 
 @main
 struct EmbedVersion {
-
     func createBuildCommands(toolPath: Path, trainName: String) throws -> [Command] {
         let identifiers = BuildEnvironmentVariables.extraBuildIdentifiers.value?
             .split(separator: ",")
@@ -69,5 +68,4 @@ extension EmbedVersion: XcodeBuildToolPlugin {
         return try createBuildCommands(toolPath: tool.path, trainName: trainName)
     }
 }
-
 #endif

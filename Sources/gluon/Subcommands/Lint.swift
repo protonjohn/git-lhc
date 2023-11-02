@@ -17,7 +17,7 @@ struct Lint: ParsableCommand {
     @OptionGroup()
     var parent: Gluon.Options
 
-    @Option()
+    @Option(help: "Where to start linting. Defaults to the parent commit of HEAD, if no CI env variables are set.")
     var since: String?
 
     static var config: Configuration {
@@ -27,13 +27,25 @@ struct Lint: ParsableCommand {
     func run() throws {
         SwiftGit2.initialize()
         let repo = try Gluon.openRepo(at: parent.repo)
+        let head = try repo.currentBranch() ?? repo.HEAD()
 
         var startOID: ObjectID?
         if let since {
             startOID = try repo.oid(for: since)
+        } else if GitlabEnvironment.isCI {
+            let ciStartOID: ObjectID?
+            do {
+                ciStartOID = try lintBaseFromGitlabCI(for: repo, head: head)
+            } catch {
+                Gluon.print("Could not invoke lint job from CI: \(error)", to: &FileHandle.stderr)
+                return
+            }
+
+            guard let ciStartOID else { return }
+            startOID = ciStartOID
         }
         if startOID == nil {
-            startOID = try repo.commit(repo.HEAD().oid).parentOIDs.first
+            startOID = try repo.commit(head.oid).parentOIDs.first
         }
         
         let (branch, commits) = try repo.commits(since: startOID)
@@ -41,6 +53,24 @@ struct Lint: ParsableCommand {
         for commit in commits {
             try lint(commit: commit, branch: branch)
         }
+    }
+
+    func lintBaseFromGitlabCI(for repo: Repositoryish, head: ReferenceType) throws -> ObjectID? {
+        var refName: String?
+        let envVars: [GitlabEnvironment] = [.commitBeforeChange, .mergeRequestDiffBaseSha, .defaultBranch]
+        for envVar in envVars {
+            if let value = envVar.value, !value.isEmpty, value != .nullSha {
+                refName = value
+                break
+            }
+        }
+
+        guard let refName else { return nil }
+
+        guard let oid = try repo.oid(for: refName) else { return nil }
+        guard oid != head.oid, try repo.isReachable(oid, from: head.oid) else { return nil }
+
+        return oid
     }
 
     func lint(commit: Commitish, branch: Branchish?) throws {
@@ -200,4 +230,8 @@ extension Branchish {
 
         return []
     }
+}
+
+extension String {
+    static let nullSha = "0000000000000000000000000000000000000000"
 }
