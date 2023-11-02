@@ -37,6 +37,13 @@ struct ReplaceVersions: ParsableCommand {
     })
     var forcedVersion: Version? = .environment
 
+    @Option(
+        name: .shortAndLong,
+        parsing: .upToNextOption,
+        help: "Additional build metadata identifiers to add to the version tag being replaced."
+    )
+    var buildIdentifiers: [String] = []
+
     func validate() throws {
         guard let train else {
             throw ValidationError("Must specify a train with --train.")
@@ -192,7 +199,7 @@ struct ReplaceVersions: ParsableCommand {
             version = Version(0, 0, 1, build: [Gluon.timestamp()])
         }
 
-        try replace(in: &repo, with: version)
+        try replace(in: &repo, with: version.adding(buildIdentifiers: buildIdentifiers))
     }
 }
 

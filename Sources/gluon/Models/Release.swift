@@ -199,20 +199,36 @@ extension Repositoryish {
     ) throws -> [Release] {
         try ranges.reduce(into: []) {
             let repoCommits = try commits(from: $1.release.oid, since: $1.last?.tag.oid)
+            var badCommits: Int = 0
             let commits = repoCommits.compactMap {
                 do {
                     // Attempt to properly parse a conventional commit. If we can't, then fake one using the
                     // commit subject and body.
-                    return try ConventionalCommit(message: $0.message)
+                    let commit = try ConventionalCommit(message: $0.message)
+                    guard let categories = Configuration.configuration.commitCategories else {
+                        return commit
+                    }
+
+                    guard categories.contains(where: { $0.name == commit.header.type }) == true else {
+                        badCommits += 1
+                        return nil
+                    }
+
+                    return commit
                 } catch {
-                    Gluon.print("""
-                        Warning: commit \($0.oid) does not have a valid format:
-                        \($0.message)
-                        """,
-                        to: &FileHandle.stderr
-                    )
+                    badCommits += 1
                     return nil
                 }
+            }
+
+            if badCommits > 0 {
+                Gluon.print(
+                    """
+                    Warning: \(badCommits) commit\(badCommits == 1 ? "" : "s") did not match the conventional commit \
+                    format, or had a type that was not configured in the repository's gluon configuration.
+                    """,
+                    to: &FileHandle.stderr
+                )
             }
 
             var body: String?
