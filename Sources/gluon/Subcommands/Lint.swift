@@ -83,6 +83,29 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
     }
 
+    func extractProjectIds(from string: String) throws -> [String] {
+        var result: [String] = []
+        let components = string.split(separator: "/")
+
+        guard let regexes = try Configuration.configuration.branchNameLinting?.branchRegexes, !regexes.isEmpty else {
+            return []
+        }
+
+        for regex in regexes {
+            for component in components {
+                var string: Substring = component[...]
+                while let match = try regex.firstMatch(in: string),
+                      let substring = match.output[0].substring {
+                    result.append(String(substring))
+                    string = string.advanced(by: substring.count)
+                }
+                guard result.isEmpty else { return result }
+            }
+        }
+
+        return []
+    }
+
     func lintBaseFromGitlabCI(for repo: Repositoryish, head: ReferenceType) throws -> ObjectID? {
         var refName: String?
         let envVars: [GitlabEnvironment] = [.commitBeforeChange, .mergeRequestDiffBaseSha, .defaultBranch]
@@ -118,7 +141,8 @@ struct Lint: ParsableCommand, VerboseCommand {
             try lint(paragraphs: components[1...], of: commit)
         }
 
-        try lintTrailers(of: commit, on: branch)
+        let branchName = branch?.name ?? Gluon.branchName
+        try lintTrailers(of: commit, branchName: branchName)
 
         printIfVerbose("No issues found.\n")
     }
@@ -160,9 +184,11 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
     }
 
-    func lintTrailers(of commit: Commitish, on branch: Branchish?) throws {
+    func lintTrailers(of commit: Commitish, branchName: String?) throws {
         guard let trailerName = Self.config.projectIdTrailerName,
-              let projectIds = branch?.projectIds, !projectIds.isEmpty else {
+              let branchName,
+              case let projectIds = try extractProjectIds(from: branchName),
+              !projectIds.isEmpty else {
             printIfVerbose("No project ids found in branch name, skipping trailer linting.")
 
             return
@@ -253,36 +279,6 @@ struct LintingError: Error, CustomStringConvertible {
 extension LintingError {
     init(_ commit: Commitish, _ reason: Reason) {
         self.init(offendingCommit: commit, reason: reason)
-    }
-}
-
-extension Branchish {
-    var projectIds: [String] {
-        var result: [String] = []
-        let components = name.split(separator: "/")
-
-        guard let regexStrings = Configuration.configuration.branchNameLinting?.projectIdRegexes else {
-            return []
-        }
-
-        do {
-            for regexString in regexStrings {
-                let regex = try Regex(regexString)
-                for component in components {
-                    var string: Substring = component[...]
-                    while let match = try regex.firstMatch(in: string),
-                          let substring = match.output[0].substring {
-                        result.append(String(substring))
-                        string = string.advanced(by: substring.count)
-                    }
-                    guard result.isEmpty else { return result }
-                }
-            }
-        } catch {
-            fatalError("Regex compilation error in \(#file) on line \(#line): \(error)")
-        }
-
-        return []
     }
 }
 

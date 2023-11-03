@@ -19,6 +19,14 @@ struct Configuration: Codable, Equatable {
         let projectIdsInBranches: ProjectIDsInBranches?
         let projectIdRegexes: [String]
 
+        var branchRegexes: [Regex<AnyRegexOutput>] {
+            get throws {
+                try projectIdRegexes.map {
+                    try Regex($0)
+                }
+            }
+        }
+
         static let `default`: Self = .init(
             projectIdsInBranches: .never,
             projectIdRegexes: [
@@ -162,11 +170,17 @@ extension Configuration {
 
 enum ConfigurationError: Error, CustomStringConvertible {
     case noSuchTrain(String)
+    case invalidRegex(String, underlyingError: Error)
 
     var description: String {
         switch self {
         case let .noSuchTrain(name):
             return "No train exists with name \(name)."
+        case let .invalidRegex(string, underlyingError):
+            return """
+                Configuration contains an invalid regular expression: \(string).
+                Parse error: \(underlyingError)
+                """
         }
     }
 }
