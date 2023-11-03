@@ -10,7 +10,7 @@ import SwiftGit2
 import ArgumentParser
 import Version
 
-struct CreateRelease: ParsableCommand {
+struct CreateRelease: ParsableCommand, QuietCommand {
     static let configuration = CommandConfiguration(
         abstract: "Tag a release at HEAD, deriving a version according to the passed options if no version is specified."
     )
@@ -106,10 +106,7 @@ struct CreateRelease: ParsableCommand {
             .appendingPathExtension("pub")
             .path()
 
-        var passphrase = ""
-        if !quiet {
-            passphrase = Gluon.readPassphrase() ?? ""
-        }
+        let passphrase = readPassphraseIfNotQuiet() ?? ""
 
         try repo.push(
             remote: remote,
@@ -136,10 +133,8 @@ struct CreateRelease: ParsableCommand {
         }
         message += release.versionString
 
-        if !quiet {
-            guard Gluon.promptForContinuation("Will create tag \(tagName).") else {
-                throw CreateReleaseError.userAborted
-            }
+        guard promptForContinuationIfNotQuiet("Will create tag \(tagName).") else {
+            throw CreateReleaseError.userAborted
         }
 
         let tag = try repo.createTag(
@@ -150,10 +145,8 @@ struct CreateRelease: ParsableCommand {
         )
 
         if push {
-            if !quiet {
-                guard Gluon.promptForContinuation("Will push tag \(tagName) to \(remote).") else {
-                    throw CreateReleaseError.userAborted
-                }
+            guard promptForContinuationIfNotQuiet("Will push tag \(tagName) to \(remote).") else {
+                throw CreateReleaseError.userAborted
             }
 
             try push(repo: &repo, tag: tag)

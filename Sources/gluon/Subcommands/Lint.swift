@@ -9,7 +9,7 @@ import Foundation
 import ArgumentParser
 import SwiftGit2
 
-struct Lint: ParsableCommand {
+struct Lint: ParsableCommand, VerboseCommand {
     static let configuration = CommandConfiguration(
         abstract: "Lint a range of commits according to the conventional commit format."
     )
@@ -20,6 +20,12 @@ struct Lint: ParsableCommand {
     @Option(help: "Where to start linting. Defaults to the parent commit of HEAD, if no CI environment is detected.")
     var since: String?
 
+    @Flag(
+        name: .shortAndLong,
+        help: "Without the verbose option, no output is produced upon success."
+    )
+    var verbose: Bool = false
+
     static var config: Configuration {
         .configuration
     }
@@ -28,6 +34,9 @@ struct Lint: ParsableCommand {
         SwiftGit2.initialize()
         let repo = try Gluon.openRepo(at: parent.repo)
         let head = try repo.currentBranch() ?? repo.HEAD()
+        if let branch = head as? Branchish {
+            printIfVerbose("Linting branch \(branch.name).")
+        }
 
         var startOID: ObjectID?
         if let since {
@@ -46,7 +55,7 @@ struct Lint: ParsableCommand {
                 return
             }
 
-            Gluon.print("Linting from commit: \(ciStartOID.description)")
+            printIfVerbose("Linting from commit: \(ciStartOID.description)")
 
             startOID = ciStartOID
         }
@@ -72,8 +81,6 @@ struct Lint: ParsableCommand {
                 throw MultipleLintingErrors(errors: errors)
             }
         }
-
-        Gluon.print("Commit linting passed. No issues found.")
     }
 
     func lintBaseFromGitlabCI(for repo: Repositoryish, head: ReferenceType) throws -> ObjectID? {
@@ -95,6 +102,8 @@ struct Lint: ParsableCommand {
     }
 
     func lint(commit: Commitish, branch: Branchish?) throws {
+        printIfVerbose("Linting commit \(commit.oid)...")
+
         let components = commit.message
             .split(separator: "\n\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -110,9 +119,12 @@ struct Lint: ParsableCommand {
         }
 
         try lintTrailers(of: commit, on: branch)
+
+        printIfVerbose("No issues found.\n")
     }
 
     func lint(subject: String, of commit: Commitish) throws {
+        printIfVerbose("Checking commit summary...")
         if let subjectMaxLength = Self.config.subjectMaxLineLength,
            subject.count > subjectMaxLength {
             throw LintingError(commit, .subjectTooLong(configuredMax: subjectMaxLength))
@@ -127,7 +139,11 @@ struct Lint: ParsableCommand {
         }
 
         let category = String(categorySubstring)
-        let categories = Configuration.get(\.commitCategories)
+        guard let categories = Configuration.configuration.commitCategories else {
+            return
+        }
+
+        printIfVerbose("Checking that commit type matches configured categories...")
         guard categories.contains(where: { $0.name == category }) != false else {
             throw LintingError(commit, .subjectHasUnrecognizedCategory(category: category))
         }
@@ -139,6 +155,7 @@ struct Lint: ParsableCommand {
            paragraph.split(separator: "\n")
                .contains(where: { line in line.count > bodyMaxColumns })
         }) {
+            printIfVerbose("Checking line lengths...")
             throw LintingError(commit, .lineInBodyTooLong(configuredMax: bodyMaxColumns))
         }
     }
@@ -146,8 +163,12 @@ struct Lint: ParsableCommand {
     func lintTrailers(of commit: Commitish, on branch: Branchish?) throws {
         guard let trailerName = Self.config.projectIdTrailerName,
               let projectIds = branch?.projectIds, !projectIds.isEmpty else {
+            printIfVerbose("No project ids found in branch name, skipping trailer linting.")
+
             return
         }
+
+        printIfVerbose("Linting trailers...")
 
         let trailers: [Trailerish]
         do {
@@ -160,6 +181,8 @@ struct Lint: ParsableCommand {
             if let prefix = Self.config.projectPrefix, !projectId.starts(with: prefix) {
                 projectId = prefix + projectId
             }
+
+            printIfVerbose("Checking that commit has trailer for \(projectId)...")
 
             guard trailers.contains(where: {
                 $0.key == trailerName &&
@@ -256,7 +279,7 @@ extension Branchish {
                 }
             }
         } catch {
-            assertionFailure("Regex compilation error in \(#file) on line \(#line): \(error)")
+            fatalError("Regex compilation error in \(#file) on line \(#line): \(error)")
         }
 
         return []
