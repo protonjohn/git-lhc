@@ -45,6 +45,9 @@ struct Lint: ParsableCommand {
                 Gluon.print("Could not determine commit base object for linting. Aborting.", error: true)
                 return
             }
+
+            Gluon.print("Linting from commit: \(ciStartOID.description)")
+
             startOID = ciStartOID
         }
         if startOID == nil {
