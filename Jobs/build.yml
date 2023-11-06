@@ -1,0 +1,8 @@
+# tooling for builds.
+
+build:describe:
+  script: |
+    mint run gluon --show latest --format json --output changelog.json
+  artifacts:
+    paths:
+      - changelog.json

@@ -1,0 +1,6 @@
+# Template for commit linting
+# Requires that the `mint' package manager is available.
+
+lint:commits:
+  script:
+    - mint run gluon lint --verbose
