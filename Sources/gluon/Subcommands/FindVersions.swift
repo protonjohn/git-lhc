@@ -99,7 +99,7 @@ struct FindVersions: ParsableCommand {
     }
 
     func show(releases: [Release]) throws {
-        let result = try releases.show(format)
+        let result = try releases.show(format, includeCommitHashes: true, includeProjectIds: true)
 
         if let outputPath = output?.path(), let data = result.data {
             guard Gluon.fileManager

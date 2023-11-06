@@ -50,7 +50,7 @@ enum ReleaseFormat: String, CaseIterable, ExpressibleByArgument {
     case json
     case yaml
     case plist
-    case versions
+    case version
 }
 
 extension Release {
@@ -111,6 +111,65 @@ extension Release {
             body: body
         )
     }
+
+    func redacting(commitHashes: Bool, projectIds: Bool) -> Self {
+        Self(
+            versionString: versionString,
+            train: train,
+            tagged: tagged,
+            changes: changes.reduce(into: [:], { partialResult, keypair in
+                partialResult[keypair.key] = keypair.value.map {
+                    $0.redacting(commitHash: commitHashes, projectIds: projectIds)
+                }
+            }),
+            body: body
+        )
+    }
+}
+
+extension Release.Category {
+    func describe() -> String {
+        guard let category = Configuration.get(\.commitCategories).first(where: { $0.name == self }),
+              let changelogName = category.changelogName else {
+            return self
+        }
+        return changelogName
+    }
+
+    var allowedInChangelog: Bool {
+        guard let category = Configuration.get(\.commitCategories).first(where: { $0.name == self }),
+              let excludeFromChangelog = category.excludeFromChangelog else {
+            return true
+        }
+        return !excludeFromChangelog
+    }
+}
+
+extension Release.Change: CustomStringConvertible {
+    var description: String {
+        var result = "- "
+        if !commitHash.isEmpty {
+            result += "\(commitHash.prefix(8)): "
+        }
+        result += "\(summary)"
+        if !projectIds.isEmpty {
+            result += " " + projectIds.map {
+                "[\($0)]"
+            }.joined(separator: " ")
+        }
+        return result
+    }
+}
+
+extension Release.Change {
+    func redacting(commitHash: Bool, projectIds: Bool) -> Self {
+        Self(
+            summary: summary,
+            body: body,
+            commitHash: commitHash ? "" : self.commitHash,
+            projectIds: projectIds ? [] : self.projectIds
+        )
+    }
 }
 
 extension Release: CustomStringConvertible {
@@ -122,9 +181,9 @@ extension Release: CustomStringConvertible {
         }
 
         result.append("""
-            \(changes.reduce(into: "") { result, category in
-                result += "## \(category.key):\n"
-                result += category.value.map { "- \($0.summary)" }.joined(separator: "\n")
+            \(changes.filter(\.key.allowedInChangelog).reduce(into: "") { result, category in
+                result += "## \(category.key.describe()):\n"
+                result += category.value.map(\.description).joined(separator: "\n")
                 result += "\n"
             })
             """
@@ -135,24 +194,32 @@ extension Release: CustomStringConvertible {
 }
 
 extension Array<Release> {
-    func show(_ format: ReleaseFormat) throws -> StringOrData {
+    func show(_ format: ReleaseFormat, includeCommitHashes: Bool, includeProjectIds: Bool) throws -> StringOrData {
+        var encodedValue = self
+
+        if !includeCommitHashes || !includeProjectIds {
+            encodedValue = encodedValue.map {
+                $0.redacting(commitHashes: !includeCommitHashes, projectIds: !includeProjectIds)
+            }
+        }
+
         let result: StringOrData
 
         switch format {
         case .json:
             let encoder = JSONEncoder()
-            result = try .init(encoder.encode(self))
+            result = try .init(encoder.encode(encodedValue))
         case .yaml:
             let encoder = YAMLEncoder()
-            result = try .init(encoder.encode(self))
+            result = try .init(encoder.encode(encodedValue))
         case .plist:
             let encoder = PropertyListEncoder()
-            result = try .init(encoder.encode(self))
-        case .versions:
-            let versions = map(\.versionString).joined(separator: ",")
+            result = try .init(encoder.encode(encodedValue))
+        case .version:
+            let versions = encodedValue.map(\.versionString).joined(separator: ",")
             result = .init(versions)
         case .text:
-            let description = map(\.description).joined(separator: "\n")
+            let description = encodedValue.map(\.description).joined(separator: "\n")
             result = .init(description)
         }
 
@@ -200,13 +267,13 @@ extension Repositoryish {
         try ranges.reduce(into: []) {
             let repoCommits = try commits(from: $1.release.oid, since: $1.last?.tag.oid)
             var badCommits: Int = 0
-            let commits = repoCommits.compactMap {
+            let commits: [(oid: OID, cc: ConventionalCommit)] = repoCommits.compactMap {
                 do {
                     // Attempt to properly parse a conventional commit. If we can't, then fake one using the
                     // commit subject and body.
                     let commit = try ConventionalCommit(message: $0.message)
                     guard let categories = Configuration.configuration.commitCategories else {
-                        return commit
+                        return ($0.oid, commit)
                     }
 
                     guard categories.contains(where: { $0.name == commit.header.type }) == true else {
@@ -214,7 +281,7 @@ extension Repositoryish {
                         return nil
                     }
 
-                    return commit
+                    return ($0.oid, commit)
                 } catch {
                     badCommits += 1
                     return nil
@@ -249,6 +316,8 @@ extension Repositoryish {
                 }
             }
 
+            let conventionalCommits = commits.map(\.cc)
+
             var tagged = false
             let version: Version
             if let releaseTag = $1.release as? TagReferenceish,
@@ -262,7 +331,7 @@ extension Repositoryish {
             } else if let forcedVersion {
                 version = forcedVersion
             } else if let last = $1.last {
-                version = commits.nextVersion(
+                version = conventionalCommits.nextVersion(
                     after: last.version,
                     prereleaseChannel: untaggedRangePrereleaseChannel
                 )
@@ -275,8 +344,8 @@ extension Repositoryish {
                 tagged: tagged,
                 train: train,
                 body: body,
-                conventionalCommits: commits,
-                correspondingHashes: repoCommits.map(\.oid)
+                conventionalCommits: conventionalCommits,
+                correspondingHashes: commits.map(\.oid)
             ))
         }
     }

@@ -30,6 +30,12 @@ struct Changelog: ParsableCommand {
     @Option(help: "The output format to use. Possible values: \(ReleaseFormat.possibleValues).")
     var format: ReleaseFormat = .text
 
+    @Flag(help: "Whether to include project IDs in release descriptions.")
+    var redactProjectIds: Bool = false
+
+    @Flag(help: "Whether to include commit hashes in release descriptions.")
+    var redactCommitHashes: Bool = false
+
     @Option(
         name: .shortAndLong,
         transform: Configuration.train(named:)
@@ -81,7 +87,11 @@ struct Changelog: ParsableCommand {
     }
     
     func show(releases: [Release]) throws {
-        let result = try releases.show(format)
+        let result = try releases.show(
+            format,
+            includeCommitHashes: !redactCommitHashes,
+            includeProjectIds: !redactProjectIds
+        )
 
         if let outputPath = output?.path(), let data = result.data {
             guard Gluon.fileManager

@@ -39,11 +39,21 @@ struct Configuration: Codable, Equatable {
     struct CommitCategory: Codable, Equatable {
         let name: String
         let description: String
+        let changelogName: String?
+        let excludeFromChangelog: Bool?
         let increment: ConventionalCommit.VersionBump?
 
-        init(name: String, description: String, increment: ConventionalCommit.VersionBump? = nil) {
+        init(
+            name: String,
+            description: String,
+            changelogName: String? = nil,
+            excludeFromChangelog: Bool = false,
+            increment: ConventionalCommit.VersionBump? = nil
+        ) {
             self.name = name
             self.description = description
+            self.changelogName = changelogName
+            self.excludeFromChangelog = excludeFromChangelog
             self.increment = increment
         }
 
