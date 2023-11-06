@@ -154,7 +154,7 @@ struct Lint: ParsableCommand, VerboseCommand {
             throw LintingError(commit, .subjectTooLong(configuredMax: subjectMaxLength))
         }
 
-        let regex = "^([a-z]+)(\\([a-zA-Z0-9\\-\\_]+\\)){0,1}(!){0,1}: .*"
+        let regex = "^([a-z0-9]+)(\\([a-zA-Z0-9\\-\\_]+\\)){0,1}(!){0,1}: .*"
         guard let match = try? Regex(regex).wholeMatch(in: subject) else {
             throw LintingError(commit, .subjectDoesNotMatchRegex(regex: regex))
         }
