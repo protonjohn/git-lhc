@@ -27,7 +27,7 @@ struct CreateRelease: ParsableCommand, QuietCommand {
 
     @Option(
         name: .shortAndLong,
-        help: "Which release channel to tag for. Possible values: \(ReleaseChannel.possibleValues)."
+        help: "Which release channel to tag for. Possible values are \(ReleaseChannel.possibleValues)."
     )
     var channel: ReleaseChannel = .production
 
@@ -45,12 +45,6 @@ struct CreateRelease: ParsableCommand, QuietCommand {
     )
     var buildIdentifiers: [String] = []
 
-    @Flag(help: "Add the current timestamp as a build identifier to the version tag.")
-    var buildTimestamp: Bool = false
-
-    @Flag(help: "Push the resulting tag to the specified remote (see the '--remote' option.)")
-    var push: Bool = false
-
     @Option(
         name: .shortAndLong,
         help: "The ssh identity to use when pushing."
@@ -62,14 +56,23 @@ struct CreateRelease: ParsableCommand, QuietCommand {
         return home.path()
     }()
 
-    @Option(help: "The remote to use when pushing the tag.")
-    var remote: String = "origin"
-
     @Flag(
-        name: .short,
+        name: .shortAndLong,
         help: "Quiet (non-interactive). Don't prompt for passwords or confirmation."
     )
     var quiet: Bool = false
+
+    @Flag(
+        name: .customLong("timestamp"),
+        help: "Add the current timestamp as a build identifier to the version tag."
+    )
+    var buildTimestamp: Bool = false
+
+    @Flag(help: "Push the resulting tag to the specified remote (see the '--remote' option.)")
+    var push: Bool = false
+
+    @Option(help: "The remote to use when pushing the tag.")
+    var remote: String = "origin"
 
     @Argument(transform: { (versionString: String) throws -> Version in
         guard let version = Version(versionString) else {

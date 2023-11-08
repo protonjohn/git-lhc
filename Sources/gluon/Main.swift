@@ -25,7 +25,10 @@ struct Gluon: ParsableCommand {
     )
 
     struct Options: ParsableArguments {
-        @Option(help: "The path to the repository.")
+        @Option(
+            name: .shortAndLong,
+            help: "The path to the repository."
+        )
         var repo: String = {
             guard let path = Gluon.fileManager.traverseUpwardsUntilFinding(fileName: ".git", isDirectory: true),
                   let url = URL(string: path) else {

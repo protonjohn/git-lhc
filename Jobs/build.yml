@@ -1,8 +1,33 @@
 # tooling for builds.
 
+.create_changelog:
+  script:
+    - mint run gluon changelog --dry-run --show latest --format json --output "${GLUON_CHANGELOG_PATH:-changelog.json}"
+
+.create_release:
+  release:
+    tag_name: "$CI_COMMIT_TAG"
+    description: "$CI_COMMIT_TAG_MESSAGE"
+
 build:describe:
-  script: |
-    mint run gluon --show latest --format json --output changelog.json
+  script:
+    - !reference [.create_changelog, script]
   artifacts:
     paths:
-      - changelog.json
+      - $GLUON_CHANGELOG_PATH
+
+build:fastlane:
+  script:
+    - !reference [.create_changelog, script]
+    - fastlane "${GLUON_FASTLANE_LANE:-build}"
+  artifacts:
+    paths:
+      - $GLUON_CHANGELOG_PATH
+
+build:makefile:
+  script:
+    - !reference [.create_changelog, script]
+    - make ${GLUON_MAKEFILE_TARGET}
+  artifacts:
+    paths:
+      - $GLUON_CHANGELOG_PATH

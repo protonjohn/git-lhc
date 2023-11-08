@@ -5,6 +5,7 @@
 //  Created by John Biggs on 10.10.23.
 //
 
+import Yams
 import Foundation
 import ArgumentParser
 
@@ -79,6 +80,14 @@ extension String {
     }
 }
 
+extension Array<String> {
+    var humanReadableDelineatedString: String {
+        let secondToLastIndex = index(before: endIndex)
+        guard secondToLastIndex > startIndex, let last else { return "" }
+        return self[startIndex..<secondToLastIndex].joined(separator: ", ") + ", and \(last)"
+    }
+}
+
 extension ExpressibleByArgument where Self: CaseIterable & RawRepresentable, RawValue == String {
-    static var possibleValues: String { allCases.map(\.rawValue).joined(separator: ", ") }
+    static var possibleValues: String { allCases.map(\.rawValue).humanReadableDelineatedString }
 }

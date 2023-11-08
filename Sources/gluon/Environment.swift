@@ -70,7 +70,7 @@ enum GluonEnvironment: String, EnvironmentVariable {
 
 extension Configuration.Train {
     static var environment: Self? {
-        guard let trainName = GluonEnvironment.trainName.value else { return nil }
+        guard let trainName = GluonEnvironment.trainName.value, !trainName.isEmpty else { return nil }
         do {
             return try Configuration.train(named: trainName)
         } catch {

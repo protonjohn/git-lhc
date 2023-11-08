@@ -23,7 +23,7 @@ class ChangelogTests: GluonTestCase {
     /// Tests the case where no version tags exist in the repository yet.
     func testBootstrapping() throws {
         try setBranch(.branchOffOfEarlyDevelop)
-        try invoke(["--format", "json"])
+        try invoke(["--format", "json", "--dry-run"])
 
         XCTAssertEqual(errorOutput, "")
 
@@ -71,7 +71,7 @@ class ChangelogTests: GluonTestCase {
     }
 
     func testShowingNewReleaseWithBreakingChange() throws {
-        try invoke(["--format", "json"])
+        try invoke(["--format", "json", "--dry-run"])
 
         XCTAssertEqual(errorOutput, "")
 
@@ -113,7 +113,7 @@ class ChangelogTests: GluonTestCase {
 
     /// Tests printing the entire changelog.
     func testMultipleVersions() throws {
-        try invoke(["--format", "json", "--show", "all"])
+        try invoke(["--format", "json", "--show", "all", "--dry-run"])
 
         XCTAssertEqual(errorOutput, "")
 

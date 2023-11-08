@@ -26,7 +26,7 @@ let package = Package(
         // .package(url: /* package url */, from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", exact: "1.2.3"),
         .package(url: "https://github.com/jpsim/Yams", exact: "5.0.6"),
-        .package(url: "https://github.com/protonjohn/SwiftGit2", exact: "0.10.1"),
+        .package(url: "https://github.com/protonjohn/SwiftGit2", exact: "0.10.2"),
         .package(url: "https://github.com/mxcl/Version", exact: "2.0.1"),
         .package(url: "https://github.com/pointfreeco/swift-parsing", exact: "0.13.0"),
     ],

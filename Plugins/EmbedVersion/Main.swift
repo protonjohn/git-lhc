@@ -17,7 +17,8 @@ enum BuildEnvironmentVariables: String {
     case extraBuildIdentifiers = "GLUON_BUILD_IDENTIFIERS"
 
     var value: String? {
-        Self.environment[rawValue]
+        guard let result = Self.environment[rawValue], !result.isEmpty else { return nil }
+        return result
     }
 }
 

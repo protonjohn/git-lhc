@@ -10,7 +10,7 @@ import SwiftGit2
 import ArgumentParser
 import Yams
 
-struct Release: Codable {
+struct Release {
     typealias Category = String
 
     let versionString: String
@@ -24,6 +24,21 @@ struct Release: Codable {
         Version(versionString)
     }
 
+    var shortVersion: Version? {
+        guard let version else { return nil }
+        return Version(version.major, version.minor, version.patch)
+    }
+
+    var channel: ReleaseChannel {
+        for identifier in version?.prereleaseIdentifiers ?? [] {
+            if let channel = ReleaseChannel(rawValue: identifier) {
+                return channel
+            }
+        }
+
+        return .production
+    }
+
     struct Change: Codable {
         let summary: String
         let body: String?
@@ -32,7 +47,7 @@ struct Release: Codable {
     }
 }
 
-enum ReleaseChannel: String, CaseIterable, ExpressibleByArgument {
+enum ReleaseChannel: String, CaseIterable, Codable, ExpressibleByArgument {
     case alpha
     case beta
     case releaseCandidate = "rc"
@@ -51,6 +66,42 @@ enum ReleaseFormat: String, CaseIterable, ExpressibleByArgument {
     case yaml
     case plist
     case version
+}
+
+// Needed in order to include the release channel in the outputted JSON data
+extension Release: Codable {
+    enum CodingKeys: String, CodingKey {
+        case versionString = "version"
+        case shortVersion
+        case train
+        case tagged
+        case changes
+        case body
+        case channel
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(self.versionString, forKey: .versionString)
+        try container.encodeIfPresent(self.shortVersion?.description, forKey: .shortVersion)
+        try container.encodeIfPresent(self.train, forKey: .train)
+        try container.encode(self.tagged, forKey: .tagged)
+        try container.encode(self.changes, forKey: .changes)
+        try container.encodeIfPresent(self.body, forKey: .body)
+        try container.encode(self.channel, forKey: .channel)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        let versionString = try container.decode(String.self, forKey: .versionString)
+        let train = try container.decodeIfPresent(Configuration.Train.self, forKey: .train)
+        let tagged = try container.decodeIfPresent(Bool.self, forKey: .tagged) ?? false
+        let changes = try container.decodeIfPresent([Category: [Change]].self, forKey: .changes) ?? [:]
+        let body = try container.decodeIfPresent(String.self, forKey: .body)
+
+        self.init(versionString: versionString, train: train, tagged: tagged, changes: changes, body: body)
+    }
 }
 
 extension Release {

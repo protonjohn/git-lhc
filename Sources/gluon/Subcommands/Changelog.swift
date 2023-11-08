@@ -18,26 +18,36 @@ struct Changelog: ParsableCommand {
     @OptionGroup()
     var parent: Gluon.Options
 
-    @Flag(inversion: .prefixedNo)
-    var allowDirty: Bool = true
+    @Option(
+        name: .shortAndLong,
+        help: "Show the latest changelog entries for the given release channel."
+    )
+    var channel: ReleaseChannel = .production
 
-    @Option()
-    var prereleaseChannel: String? = nil
-
-    @Option(help: "Which parts of the changelog to show. Can be latest, all, or a specific commit hash.")
-    var show: OutputSpec = .latest
-
-    @Option(help: "The output format to use. Possible values: \(ReleaseFormat.possibleValues).")
-    var format: ReleaseFormat = .text
-
-    @Flag(help: "Whether to include project IDs in release descriptions.")
-    var redactProjectIds: Bool = false
-
-    @Flag(help: "Whether to include commit hashes in release descriptions.")
-    var redactCommitHashes: Bool = false
+    @Flag(
+        name: .shortAndLong,
+        help: """
+            Show the changelog up to HEAD since the last release tag, as if a new release were being created. \
+            Note: This flag is sensitive to the --channel option.
+            """
+    )
+    var dryRun: Bool = false
 
     @Option(
         name: .shortAndLong,
+        help: "Which parts of the changelog to show. Can be latest, all, or a specific commit hash."
+    )
+    var show: OutputSpec = .latest
+
+    @Option(
+        name: .shortAndLong,
+        help: "The output format to use. Possible values are \(ReleaseFormat.possibleValues)."
+    )
+    var format: ReleaseFormat = .text
+
+    @Option(
+        name: .shortAndLong,
+        help: "Which train to show changes for. Defaults to none.",
         transform: Configuration.train(named:)
     )
     var train: Configuration.Train? = .environment
@@ -49,24 +59,31 @@ struct Changelog: ParsableCommand {
     )
     var output: URL?
 
+    @Flag(help: "Whether to include project IDs in release descriptions.")
+    var redactProjectIds: Bool = false
+
+    @Flag(help: "Whether to include commit hashes in release descriptions.")
+    var redactCommitHashes: Bool = false
+
     func run() throws {
         SwiftGit2.initialize()
 
         let repo = try Gluon.openRepo(at: parent.repo)
+        let prereleaseChannel = channel.isPrerelease ? channel.rawValue : nil
         
         let releases: [Release]
         switch show {
         case .all:
             releases = try repo.allReleases(
                 for: train,
-                allowDirty: allowDirty,
+                allowDirty: dryRun,
                 untaggedPrereleaseChannel: prereleaseChannel,
                 forceLatestVersionTo: nil
             )
         case .latest:
             guard let release = try repo.latestRelease(
                 for: train,
-                allowDirty: allowDirty,
+                allowDirty: dryRun,
                 untaggedPrereleaseChannel: prereleaseChannel,
                 forceLatestVersionTo: nil
             ) else {

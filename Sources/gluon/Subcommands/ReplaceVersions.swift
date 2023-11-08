@@ -28,6 +28,31 @@ struct ReplaceVersions: ParsableCommand {
     )
     var train: Configuration.Train? = .environment
 
+    @Flag(
+        name: .shortAndLong,
+        help: """
+            Replace versions as if a new release were being created. \
+            Note: This flag is sensitive to the --channel option.
+            """
+    )
+    var dryRun: Bool = false
+
+    @Option(
+        name: .shortAndLong,
+        help: """
+            If --dry-run is specified, denotes the release channel that should be used \
+            for calculating the version number.
+            """
+    )
+    var channel: ReleaseChannel = .production
+
+    @Option(
+        name: .shortAndLong,
+        parsing: .upToNextOption,
+        help: "Additional build metadata identifiers to add to the version tag being replaced."
+    )
+    var buildIdentifiers: [String] = []
+
     @Argument(transform: { (versionString: String) throws -> Version in
         guard let version = Version(versionString) else {
             throw CreateReleaseError.invalidVersion(versionString)
@@ -36,13 +61,6 @@ struct ReplaceVersions: ParsableCommand {
         return version
     })
     var forcedVersion: Version? = .environment
-
-    @Option(
-        name: .shortAndLong,
-        parsing: .upToNextOption,
-        help: "Additional build metadata identifiers to add to the version tag being replaced."
-    )
-    var buildIdentifiers: [String] = []
 
     func validate() throws {
         guard let train else {
@@ -184,14 +202,15 @@ struct ReplaceVersions: ParsableCommand {
     func run() throws {
         SwiftGit2.initialize()
         var repo = try Gluon.openRepo(at: parent.repo)
+        let prereleaseChannel = channel.isPrerelease ? channel.rawValue : nil
 
         let version: Version
         if let forcedVersion {
             version = forcedVersion
         } else if let latest = try repo.latestRelease(
             for: train,
-            allowDirty: false,
-            untaggedPrereleaseChannel: nil,
+            allowDirty: dryRun,
+            untaggedPrereleaseChannel: prereleaseChannel,
             forceLatestVersionTo: nil
         ), let latestVersion = latest.version {
             version = latestVersion

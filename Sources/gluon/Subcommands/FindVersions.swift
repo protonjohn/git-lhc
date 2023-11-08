@@ -24,7 +24,10 @@ struct FindVersions: ParsableCommand {
     )
     var train: Configuration.Train? = .environment
 
-    @Option(help: "The output format to use. Possible values: \(ReleaseFormat.possibleValues).")
+    @Option(
+        name: .shortAndLong,
+        help: "The output format to use. Possible values are \(ReleaseFormat.possibleValues)."
+    )
     var format: ReleaseFormat = .text
 
     @Option(
