@@ -125,10 +125,7 @@ extension Gluon {
     }
 
     static func openRepo(at path: String) throws -> Repositoryish {
-        guard let url = URL(string: path) else {
-            throw GluonError.invalidPath(path)
-        }
-
+        let url = URL(filePath: path, directoryHint: .isDirectory)
         return try Self.openRepo(url).get()
     }
 }

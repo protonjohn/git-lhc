@@ -57,13 +57,26 @@ enum GitlabEnvironment: String, EnvironmentVariable {
 enum GluonEnvironment: String, EnvironmentVariable {
     case configFilePath = "GLUON_CONFIG_PATH"
     case trainName = "GLUON_TRAIN_NAME"
+    case jiraApiToken = "GLUON_JIRA_APITOKEN"
+    case jiraUsername = "GLUON_JIRA_USERNAME"
+    case jiraEndpoint = "GLUON_JIRA_ENDPOINT"
+
+    var defaultValue: String? {
+        guard case .configFilePath = self else {
+            return nil
+        }
+        
+        return Gluon.fileManager.traverseUpwardsUntilFinding(fileName: ".gluon.yml")
+    }
+}
+
+enum UNIXEnvironment: String, EnvironmentVariable {
+    case editor = "EDITOR"
 
     var defaultValue: String? {
         switch self {
-        case .configFilePath:
-            return Gluon.fileManager.traverseUpwardsUntilFinding(fileName: ".gluon.yml")
-        case .trainName:
-            return nil
+        case .editor:
+            return "/usr/bin/nano"
         }
     }
 }

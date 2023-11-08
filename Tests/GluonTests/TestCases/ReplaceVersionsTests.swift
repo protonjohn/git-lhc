@@ -72,6 +72,7 @@ class ReplaceVersionsTests: GluonTestCase {
     static let config: Configuration = .init(
         projectPrefix: nil,
         projectIdTrailerName: nil,
+        jiraReleaseNotesField: nil,
         subjectMaxLineLength: nil,
         bodyMaxLineLength: nil,
         branchNameLinting: nil,

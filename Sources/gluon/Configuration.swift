@@ -103,6 +103,7 @@ struct Configuration: Codable, Equatable {
 
     let projectPrefix: String?
     let projectIdTrailerName: String?
+    let jiraReleaseNotesField: String?
 
     let subjectMaxLineLength: Int?
     let bodyMaxLineLength: Int?
@@ -114,6 +115,7 @@ struct Configuration: Codable, Equatable {
     static let `default`: Self = .init(
         projectPrefix: nil,
         projectIdTrailerName: nil,
+        jiraReleaseNotesField: nil,
         subjectMaxLineLength: nil,
         bodyMaxLineLength: 72,
         branchNameLinting: .default,

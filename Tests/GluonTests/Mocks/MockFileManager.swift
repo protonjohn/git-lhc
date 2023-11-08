@@ -119,6 +119,26 @@ struct MockFileManager: FileManagerish {
         try setNode(nil, atPath: path)
     }
 
+    mutating func url(
+        for directory: FileManager.SearchPathDirectory,
+        in domain: FileManager.SearchPathDomainMask,
+        appropriateFor url: URL?,
+        create shouldCreate: Bool
+    ) throws -> URL {
+        guard directory == .itemReplacementDirectory,
+              domain == .userDomainMask else {
+            throw "Not yet implemented"
+        }
+
+        let name = "\(UUID())"
+        let url = URL(filePath: "/tmp/\(name)")
+        if shouldCreate {
+            try setNode(.directory(name: name, contents: []), atPath: "/tmp")
+        }
+
+        return url
+    }
+
     func contents(atPath path: String) -> Data? {
         switch tree(from: path).last {
         case let .file(_, contents):
@@ -154,7 +174,8 @@ struct MockFileManager: FileManagerish {
                             .file(name: ".gluon.yml", contents: .configFile)
                         ])
                     ])
-                ])
+                ]),
+                .directory(name: "tmp", contents: [])
             ]
         )
     )

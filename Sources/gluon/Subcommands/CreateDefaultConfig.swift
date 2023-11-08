@@ -23,7 +23,7 @@ struct CreateDefaultConfig: ParsableCommand {
         }
 
         if Gluon.fileManager.fileExists(atPath: configPath) {
-            guard Gluon.promptForContinuation("File at \(configPath) already exists.") else {
+            guard Gluon.promptForConfirmation("File at \(configPath) already exists.") else {
                 throw CreateDefaultConfigError.userAborted
             }
 

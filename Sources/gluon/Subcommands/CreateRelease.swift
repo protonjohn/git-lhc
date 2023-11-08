@@ -10,7 +10,7 @@ import SwiftGit2
 import ArgumentParser
 import Version
 
-struct CreateRelease: ParsableCommand, QuietCommand {
+struct CreateRelease: AsyncParsableCommand, QuietCommand {
     static let configuration = CommandConfiguration(
         abstract: "Tag a release at HEAD, deriving a version according to the passed options if no version is specified."
     )
@@ -74,6 +74,15 @@ struct CreateRelease: ParsableCommand, QuietCommand {
     @Option(help: "The remote to use when pushing the tag.")
     var remote: String = "origin"
 
+    @Flag(
+        inversion: .prefixedNo,
+        help: GluonEnvironment.jiraEndpoint.value == nil ? .hidden : """
+            Don't attempt to communicate with JIRA. If you find yourself doing this often, consider \
+            unsetting \(GluonEnvironment.jiraEndpoint.rawValue).
+            """
+    )
+    var jira: Bool = true
+
     @Argument(transform: { (versionString: String) throws -> Version in
         guard let version = Version(versionString) else {
             throw CreateReleaseError.invalidVersion(versionString)
@@ -105,7 +114,7 @@ struct CreateRelease: ParsableCommand, QuietCommand {
 
     func push(repo: inout Repositoryish, tag: TagReferenceish) throws {
         let privateKeyPath = identity
-        let publicKeyPath = URL(string: privateKeyPath)!
+        let publicKeyPath = URL(filePath: privateKeyPath, directoryHint: .notDirectory)
             .appendingPathExtension("pub")
             .path()
 
@@ -136,7 +145,19 @@ struct CreateRelease: ParsableCommand, QuietCommand {
         }
         message += release.versionString
 
-        guard promptForContinuationIfNotQuiet("Will create tag \(tagName).") else {
+        if let body = release.body {
+            message += "\n\n\(body)"
+        }
+
+        guard promptForConfirmationIfNotQuiet("""
+            Will create tag:
+            tag \(tagName)
+            Tagger: \(signature)
+            Date: [...]
+
+            \(message)
+
+            """) else {
             throw CreateReleaseError.userAborted
         }
 
@@ -148,7 +169,7 @@ struct CreateRelease: ParsableCommand, QuietCommand {
         )
 
         if push {
-            guard promptForContinuationIfNotQuiet("Will push tag \(tagName) to \(remote).") else {
+            guard promptForConfirmationIfNotQuiet("Will push tag \(tagName) to \(remote).") else {
                 throw CreateReleaseError.userAborted
             }
 
@@ -156,7 +177,35 @@ struct CreateRelease: ParsableCommand, QuietCommand {
         }
     }
 
-    mutating func run() throws {
+    func editNotes(for release: Release) async throws -> String? {
+        guard jira,
+           let fieldName = Configuration.configuration.jiraReleaseNotesField,
+           let jiraClient = Gluon.jiraClient,
+            case let projectIds = release.changes.values.flatMap({ $0.flatMap(\.projectIds) }),
+              !projectIds.isEmpty else {
+            return nil
+        }
+
+        let issues = try await jiraClient.issues(ids: projectIds)
+        var releaseNotes = issues.compactMap {
+            $0.fields.fieldByName(fieldName) as? String
+        }.map {
+            "- \($0)"
+        }.joined(separator: "\n")
+
+        if !quiet {
+            Gluon.print("Release notes:", releaseNotes, separator: "\n")
+            if Gluon.promptForConfirmation("Edit?", continueText: false, defaultAction: false) {
+                releaseNotes = try Gluon.fileManager.editFile(
+                    releaseNotes,
+                    temporaryFileName: "release_notes.txt"
+                ) ?? ""
+            }
+        }
+        return releaseNotes
+    }
+
+    mutating func run() async throws {
         SwiftGit2.initialize()
 
         let prereleaseChannel = channel.isPrerelease ? channel : nil
@@ -166,7 +215,7 @@ struct CreateRelease: ParsableCommand, QuietCommand {
         }
 
         var repo = try Gluon.openRepo(at: parent.repo)
-        guard let release = try repo.latestRelease(
+        guard var release = try repo.latestRelease(
             for: train,
             allowDirty: true,
             untaggedPrereleaseChannel: prereleaseChannel?.rawValue,
@@ -176,6 +225,10 @@ struct CreateRelease: ParsableCommand, QuietCommand {
             buildIdentifiers: buildIdentifiers
         ) else {
             fatalError("Invariant error: no release found or created")
+        }
+
+        if let notes = try await editNotes(for: release) {
+            release = release.adding(notes: notes)
         }
 
         try createTag(in: &repo, for: release)

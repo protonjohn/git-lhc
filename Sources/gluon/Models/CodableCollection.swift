@@ -8,6 +8,7 @@
 import Foundation
 
 indirect enum CodableCollection: Equatable {
+    case null
     case int(Int)
     case bool(Bool)
     case data(Data)
@@ -16,6 +17,31 @@ indirect enum CodableCollection: Equatable {
 
     case list([Self])
     case dictionary([String: Self])
+
+    static let nullValue: String? = nil
+}
+
+extension CodableCollection {
+    public var value: Any? {
+        switch self {
+        case .null:
+            return nil
+        case .int(let int):
+            return int
+        case .bool(let bool):
+            return bool
+        case .data(let data):
+            return data
+        case .double(let double):
+            return double
+        case .string(let string):
+            return string
+        case .list(let array):
+            return array.map(\.value)
+        case .dictionary(let dictionary):
+            return dictionary.mapValues(\.value)
+        }
+    }
 }
 
 extension CodableCollection: Codable {
@@ -36,6 +62,7 @@ extension CodableCollection: Codable {
             Self.decoder(Self.string),
             Self.decoder(Self.bool),
             Self.decoder(Self.data),
+            Self.decoder({ (nothing: Empty) in .null }), // for null values
             Self.decoder(Self.list),
             Self.decoder(Self.dictionary),
         ]
@@ -47,12 +74,13 @@ extension CodableCollection: Codable {
             }
         }
 
-        throw CodableCollectionError()
+        self = .null
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
+        case .null: try container.encode(Self.nullValue)
         case let .int(int): try container.encode(int)
         case let .bool(bool): try container.encode(bool)
         case let .data(data): try container.encode(data)
@@ -69,6 +97,14 @@ struct CodableCollectionError: Error, CustomStringConvertible {
 }
 
 // MARK: - CodableCollection convenience extensions
+
+private typealias Empty = String?
+
+extension CodableCollection: ExpressibleByNilLiteral {
+    init(nilLiteral: ()) {
+        self = .null
+    }
+}
 
 extension CodableCollection: ExpressibleByStringLiteral {
     init(stringLiteral value: StringLiteralType) {

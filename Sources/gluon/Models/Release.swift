@@ -163,6 +163,16 @@ extension Release {
         )
     }
 
+    func adding(notes: String) -> Self {
+        Self(
+            versionString: versionString,
+            train: train,
+            tagged: tagged,
+            changes: changes,
+            body: notes
+        )
+    }
+
     func redacting(commitHashes: Bool, projectIds: Bool) -> Self {
         Self(
             versionString: versionString,

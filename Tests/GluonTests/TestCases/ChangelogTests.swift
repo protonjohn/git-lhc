@@ -179,6 +179,7 @@ class ChangelogTests: GluonTestCase {
         Configuration.configuration = .init(
             projectPrefix: nil,
             projectIdTrailerName: nil,
+            jiraReleaseNotesField: nil,
             subjectMaxLineLength: nil,
             bodyMaxLineLength: nil,
             branchNameLinting: nil,

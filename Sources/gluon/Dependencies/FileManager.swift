@@ -17,6 +17,8 @@ protocol FileManagerish {
 
     func contents(atPath path: String) -> Data?
 
+    mutating func url(for directory: FileManager.SearchPathDirectory, in domain: FileManager.SearchPathDomainMask, appropriateFor url: URL?, create shouldCreate: Bool) throws -> URL
+
     mutating func createFile(
         atPath path: String,
         contents data: Data?,
@@ -31,19 +33,44 @@ extension FileManagerish {
     ) -> Bool {
         createFile(atPath: path, contents: data, attributes: nil)
     }
+
+    /// editFile: Spawn an editor session if detected to be running in a terminal.
+    mutating func editFile(_ editableString: String, temporaryFileName: String?) throws -> String? {
+        let fileName = temporaryFileName ?? "tmp.txt"
+        let fileNameURL = URL(filePath: fileName, relativeTo: nil)
+
+        let tempDir = try url(
+            for: .itemReplacementDirectory,
+            in: .userDomainMask,
+            appropriateFor: fileNameURL,
+            create: true
+        )
+
+        let tempFile = URL(filePath: fileNameURL.path(), relativeTo: tempDir)
+        let tempFilePath = tempFile.absoluteURL.path()
+
+        let editableStringData = editableString.data(using: .utf8)
+        _ = createFile(atPath: tempFilePath, contents: editableStringData)
+
+        try Gluon.spawnAndWait(
+            executableURL: URL(filePath: Gluon.editor, directoryHint: .notDirectory),
+            arguments: [tempFilePath]
+        )
+
+        guard let contents = contents(atPath: tempFilePath),
+              let string = String(data: contents, encoding: .utf8) else { return nil }
+
+        return string
+    }
 }
 
 extension FileManagerish {
     func traverseUpwardsUntilFinding(fileName: String, startingPoint: String? = nil, isDirectory: Bool = false) -> String? {
         var url: URL
         if let startingPoint {
-            guard let startingURL = URL(string: startingPoint) else {
-                return nil
-            }
-
-            url = startingURL
+            url = URL(filePath: startingPoint)
         } else {
-            url = URL(string: currentDirectoryPath)!
+            url = URL(filePath: currentDirectoryPath, directoryHint: .isDirectory)
         }
         url = url.appending(path: fileName)
 
@@ -78,4 +105,6 @@ extension FileManager: FileManagerish {
 
 extension Gluon {
     static var fileManager: FileManagerish = FileManager.default
+
+    static var isInteractiveSession: (() -> Bool) = { isatty(STDOUT_FILENO) == 1 }
 }

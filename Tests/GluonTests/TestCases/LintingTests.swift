@@ -61,6 +61,7 @@ class LintingTests: GluonTestCase {
         Configuration.configuration = .init(
             projectPrefix: "TEST-",
             projectIdTrailerName: "Project-Id",
+            jiraReleaseNotesField: nil,
             subjectMaxLineLength: nil,
             bodyMaxLineLength: nil,
             branchNameLinting: .init(

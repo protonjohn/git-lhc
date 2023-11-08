@@ -41,8 +41,12 @@ class GluonTestCase: XCTestCase {
         let readPassphrase = Gluon.readPassphrase
         let promptUser = Gluon.promptUser
         let processInfo = Gluon.processInfo
+        let jiraClient = Gluon.jiraClient
+        let isInteractive = Gluon.isInteractiveSession
 
         Gluon.processInfo = MockProcessInfo.mock
+        Gluon.jiraClient = MockJiraClient.mock
+        Gluon.isInteractiveSession = { true }
 
         var fileManager = MockFileManager.mock
         fileManager.currentDirectoryPath = Self.repoPath
@@ -51,17 +55,19 @@ class GluonTestCase: XCTestCase {
         Gluon.fileManager = fileManager
 
         Gluon.openRepo = { url in
-            XCTAssertEqual(url.path(), Self.repoPath)
+            XCTAssertEqual((url.path() as NSString).standardizingPath, Self.repoPath)
             return .success(MockRepository.mock)
         }
 
-        Gluon.readPassphrase = {
+        Gluon.readPassphrase = { _ in
             return "foo bar"
         }
 
         Gluon.promptUser = { _ in
             return "y"
         }
+
+        Gluon.spawnProcessAndWaitForTermination = { _, _ in }
 
         Gluon.printer = MockPrinter.mock
 
@@ -80,6 +86,8 @@ class GluonTestCase: XCTestCase {
         Gluon.readPassphrase = readPassphrase
         Gluon.promptUser = promptUser
         Gluon.processInfo = processInfo
+        Gluon.jiraClient = jiraClient
+        Gluon.isInteractiveSession = isInteractive
     }
 
     func setEnv<E: EnvironmentVariable>(_ env: E, to value: String) {

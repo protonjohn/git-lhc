@@ -45,9 +45,9 @@ extension VerboseCommand {
 }
 
 extension Gluon {
-    static var readPassphrase: (() -> String?) = {
+    static var readPassphrase: ((String) -> String?) = { prompt in
         var buf = [CChar](repeating: 0, count: 8192)
-        guard let passphraseBytes = readpassphrase("Enter passphrase: ", &buf, buf.count, 0) else {
+        guard let passphraseBytes = readpassphrase(prompt, &buf, buf.count, 0) else {
             return nil
         }
         return String(cString: passphraseBytes)
@@ -58,9 +58,13 @@ extension Gluon {
         return readLine(strippingNewline: true)
     }
 
-    static func promptForContinuation(_ prompt: String, defaultAction: Bool = true) -> Bool {
+    static func promptForPassword(_ prompt: String = "Enter passphrase: ") -> String? {
+        readPassphrase(prompt)
+    }
+
+    static func promptForConfirmation(_ prompt: String, continueText: Bool = true, defaultAction: Bool = true) -> Bool {
         let action = defaultAction ? "Y/n" : "y/N"
-        var prompt = "\(prompt) Continue? (\(action)) "
+        var prompt = "\(prompt) \(continueText ? "Continue? " : "")(\(action)) "
 
         repeat {
             guard let string = Self.promptUser(prompt) else {
@@ -90,12 +94,12 @@ extension QuietCommand {
     func readPassphraseIfNotQuiet() -> String? {
         guard !quiet else { return "" }
 
-        return Gluon.readPassphrase()
+        return Gluon.promptForPassword()
     }
 
-    func promptForContinuationIfNotQuiet(_ prompt: String, defaultAction: Bool = true) -> Bool {
+    func promptForConfirmationIfNotQuiet(_ prompt: String, defaultAction: Bool = true) -> Bool {
         guard !quiet else { return true }
 
-        return Gluon.promptForContinuation(prompt, defaultAction: defaultAction)
+        return Gluon.promptForConfirmation(prompt, defaultAction: defaultAction)
     }
 }

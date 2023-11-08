@@ -10,17 +10,17 @@ import XCTest
 @testable import gluon
 
 class CreateReleaseTests: GluonTestCase {
-    func invoke(_ args: [String] = []) throws {
+    func invoke(_ args: [String] = []) async throws {
         var createRelease = try CreateRelease.parse(args)
-        try createRelease.run()
+        try await createRelease.run()
     }
 
-    func subtestCreatingNewProdRelease(train: Configuration.Train? = nil) throws {
+    func subtestCreatingNewProdRelease(train: Configuration.Train? = nil) async throws {
         var args = ["--push"]
         if let train {
             args.append(contentsOf: ["--train", train.name])
         }
-        try invoke(args)
+        try await invoke(args)
 
         XCTAssertEqual(repoUnderTest.pushes.count, 1)
         guard let first = repoUnderTest.pushes.first,
@@ -46,15 +46,43 @@ class CreateReleaseTests: GluonTestCase {
         let expectedTagName = "refs/tags/\(train?.tagPrefix ?? "")1.0.0"
         XCTAssertEqual(name, expectedTagName)
         XCTAssertEqual(tag.oid, head.oid)
+        
+        if let train {
+            XCTAssertEqual(tag.message, """
+            release: test 1.0.0
+
+            - Release notes content
+            """)
+        }
     }
 
-    func testCreatingNewProdRelease() throws {
-        try subtestCreatingNewProdRelease()
+    func testCreatingNewProdRelease() async throws {
+        Gluon.jiraClient = MockJiraClient.init(issues: [
+            .init(
+                id: "12345",
+                summary: nil,
+                fields: .init(
+                    assignee: nil,
+                    summary: "",
+                    status: .init(
+                        name: "",
+                        description: nil
+                    ),
+                    fixVersions: nil,
+                    description: "",
+                    created: .now,
+                    extraFields: [MockJiraClient.customField: "Release notes content"]
+                )
+            )
+        ])
+
+        try await subtestCreatingNewProdRelease()
 
         let train: Configuration.Train = .init(name: "test", displayName: nil, tagPrefix: "train/", replace: nil)
         Configuration.configuration = .init(
-            projectPrefix: nil,
-            projectIdTrailerName: nil,
+            projectPrefix: "TEST-",
+            projectIdTrailerName: "Project-Id",
+            jiraReleaseNotesField: MockJiraClient.customField,
             subjectMaxLineLength: nil,
             bodyMaxLineLength: nil,
             branchNameLinting: nil,
@@ -62,15 +90,15 @@ class CreateReleaseTests: GluonTestCase {
             trains: [train]
         )
 
-        try subtestCreatingNewProdRelease()
+        try await subtestCreatingNewProdRelease(train: train)
     }
 
-    func subtestCreatingPreleaseForVersion(train: Configuration.Train? = nil, channel: ReleaseChannel, prereleaseBuild: String = "1") throws {
+    func subtestCreatingPreleaseForVersion(train: Configuration.Train? = nil, channel: ReleaseChannel, prereleaseBuild: String = "1") async throws {
         var args = ["--push", "--channel", channel.rawValue]
         if let train {
             args.append(contentsOf: ["--train", train.name])
         }
-        try invoke(args)
+        try await invoke(args)
 
         XCTAssertEqual(repoUnderTest.pushes.count, 1)
         guard let first = repoUnderTest.pushes.first,
@@ -121,16 +149,16 @@ class CreateReleaseTests: GluonTestCase {
         return (nextCommit, tag)
     }
 
-    func testCreatingPrereleasesForVersion() throws {
+    func testCreatingPrereleasesForVersion() async throws {
         for channel in ReleaseChannel.prereleaseChannels {
-            try subtestCreatingPreleaseForVersion(channel: channel)
+            try await subtestCreatingPreleaseForVersion(channel: channel)
 
             let oldRepo = MockRepository.mock
             var repo = oldRepo
             _ = try commitAndTag(repo: &repo, tagName: "1.0.0-\(channel.rawValue).1")
 
             MockRepository.mock = repo
-            try subtestCreatingPreleaseForVersion(channel: channel, prereleaseBuild: "2")
+            try await subtestCreatingPreleaseForVersion(channel: channel, prereleaseBuild: "2")
             MockRepository.mock = oldRepo
         }
 
@@ -138,6 +166,7 @@ class CreateReleaseTests: GluonTestCase {
         Configuration.configuration = .init(
             projectPrefix: nil,
             projectIdTrailerName: nil,
+            jiraReleaseNotesField: nil,
             subjectMaxLineLength: nil,
             bodyMaxLineLength: nil,
             branchNameLinting: nil,
@@ -146,14 +175,14 @@ class CreateReleaseTests: GluonTestCase {
         )
 
         for channel in ReleaseChannel.prereleaseChannels {
-            try subtestCreatingPreleaseForVersion(train: train, channel: channel)
+            try await subtestCreatingPreleaseForVersion(train: train, channel: channel)
 
             let oldRepo = MockRepository.mock
             var repo = oldRepo
             _ = try commitAndTag(repo: &repo, tagName: "\(train.tagPrefix ?? "")1.0.0-\(channel.rawValue).1")
 
             MockRepository.mock = repo
-            try subtestCreatingPreleaseForVersion(train: train, channel: channel, prereleaseBuild: "2")
+            try await subtestCreatingPreleaseForVersion(train: train, channel: channel, prereleaseBuild: "2")
             MockRepository.mock = oldRepo
         }
     }

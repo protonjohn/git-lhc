@@ -143,7 +143,7 @@ struct ReplaceVersions: ParsableCommand {
 
     func replace(in repo: inout Repositoryish, with version: Version) throws {
         let replacements = train!.replace!
-        let baseURL = URL(string: parent.repo)!
+        let baseURL = URL(filePath: parent.repo, directoryHint: .isDirectory)
 
         for replacement in replacements {
             let path = baseURL

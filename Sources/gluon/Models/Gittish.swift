@@ -175,6 +175,12 @@ protocol Commitish: ObjectType, CustomStringConvertible {
     var trailers: [Trailerish] { get throws }
 }
 
+extension Signature: CustomStringConvertible {
+    public var description: String {
+        "\(name) <\(email)>"
+    }
+}
+
 extension Commitish {
     public var description: String {
         let dateFormatter = DateFormatter()
@@ -183,7 +189,7 @@ extension Commitish {
 
         return """
         commit \(oid.description)
-        Author: \(author.name) <\(author.email)>
+        Author: \(author.description)
         Date:   \(dateFormatter.string(from: date))
 
         \(message.indented())

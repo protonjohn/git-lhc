@@ -11,7 +11,7 @@ import Yams
 import SwiftGit2
 
 @main
-struct Gluon: ParsableCommand {
+struct Gluon: AsyncParsableCommand {
     static var configuration = CommandConfiguration(
         abstract: "An integration tool for easier cross-team collaboration.",
         subcommands: [
@@ -30,11 +30,11 @@ struct Gluon: ParsableCommand {
             help: "The path to the repository."
         )
         var repo: String = {
-            guard let path = Gluon.fileManager.traverseUpwardsUntilFinding(fileName: ".git", isDirectory: true),
-                  let url = URL(string: path) else {
+            guard let path = Gluon.fileManager.traverseUpwardsUntilFinding(fileName: ".git", isDirectory: true) else {
                 return Gluon.fileManager.currentDirectoryPath
             }
 
+            let url = URL(filePath: path)
             var result = url.deletingLastPathComponent().path()
             while result.hasSuffix("/") {
                 result.removeLast()
@@ -88,5 +88,35 @@ extension Gluon {
 
     static var tagName: String? {
         GitlabEnvironment.commitTag.value
+    }
+
+    static var editor: String {
+        guard let result = UNIXEnvironment.editor.value else {
+            fatalError("No editor set in environment")
+        }
+        return result
+    }
+}
+
+extension Gluon {
+    static var spawnProcessAndWaitForTermination: ((URL, [String]) throws -> ()) = { url, arguments in
+        let task = Process()
+        task.executableURL = url
+        task.arguments = arguments
+        task.environment = Gluon.processInfo.environment
+
+        task.standardInput = FileHandle(forReadingAtPath: "/dev/tty")
+        task.standardError = FileHandle(forWritingAtPath: "/dev/tty")
+        task.standardOutput = FileHandle(forWritingAtPath: "/dev/tty")
+
+        try task.run()
+        // Note: this is pure wizardry but is absolutely key to making spawn work properly
+        tcsetpgrp(STDIN_FILENO, task.processIdentifier)
+
+        task.waitUntilExit()
+    }
+
+    static func spawnAndWait(executableURL: URL, arguments: [String]) throws {
+        try spawnProcessAndWaitForTermination(executableURL, arguments)
     }
 }
