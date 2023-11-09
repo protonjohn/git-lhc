@@ -80,6 +80,13 @@ extension String {
     }
 }
 
+extension Array {
+    var second: Element? {
+        guard count > 1 else { return nil }
+        return self[1]
+    }
+}
+
 extension Array<String> {
     var humanReadableDelineatedString: String {
         let secondToLastIndex = index(before: endIndex)
@@ -91,3 +98,4 @@ extension Array<String> {
 extension ExpressibleByArgument where Self: CaseIterable & RawRepresentable, RawValue == String {
     static var possibleValues: String { allCases.map(\.rawValue).humanReadableDelineatedString }
 }
+

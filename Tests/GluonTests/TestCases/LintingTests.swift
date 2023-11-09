@@ -72,11 +72,17 @@ class LintingTests: GluonTestCase {
             trains: nil
         )
 
-        try setBranch(.branchWithFullProjectIdInLastComponent)
-        try invoke()
+        let matchingTrailerBranches: [MockBranch] = [
+            .branchWithFullProjectIdInLastComponent,
+            .branchWithPartialProjectIdInLastComponent,
+            .branchWithOtherProjectId,
+            .branchWithMultipleProjectIds,
+        ]
 
-        try setBranch(.branchWithPartialProjectIdInLastComponent)
-        try invoke()
+        for branch in matchingTrailerBranches {
+            try setBranch(branch)
+            try invoke()
+        }
 
         let mismatchedTrailerBranches: [MockBranch] = [
             .branchWithMismatchedFullProjectIdInLastComponent,

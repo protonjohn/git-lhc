@@ -16,7 +16,7 @@ branchNameLinting:
   #   - always: every branch name should contain a project ID.
   #   - commitsMustMatch: if a branch name mentions a project ID, the commits in the branch must contain the same IDs.
   projectIdsInBranches: always
-  # projectIdRegexes: a list of regular expressions to match the project ID inside the branch name.
+  # projectIdRegexes: a list of regular expressions to match the project ID inside a branch name or git trailer.
   projectIdRegexes:
   - '[A-Z]{2,10}-[0-9]{2,5}'
   - (^|[^\.\-\_0-9A-Z])([0-9]{3,5})
@@ -53,7 +53,7 @@ trains:
     #   - identifiers: All release identifiers, without the version component.
     #   - prereleaseIdentifiers: Prerelease identifiers only.
     #   - buildIdentifiers: Build identifiers only.
-    item: version
+    item: fullVersion
     # format (optional): the format of the file subject to modification. Options are:
     #   - plaintext (default): a plain text file.
     #   - json: A json file.
@@ -62,6 +62,6 @@ trains:
     format: plist
   - key: CFBundleShortVersionString
     file: apps/mac/TestTarget/Info.plist
-    item: fullVersion
+    item: version
     format: plist
 

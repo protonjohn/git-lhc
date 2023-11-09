@@ -19,19 +19,22 @@ struct Configuration: Codable, Equatable {
         let projectIdsInBranches: ProjectIDsInBranches?
         let projectIdRegexes: [String]
 
-        var branchRegexes: [Regex<AnyRegexOutput>] {
-            get throws {
-                try projectIdRegexes.map {
-                    try Regex($0)
+        static let branchRegexes: [Regex<AnyRegexOutput>]? = {
+            Configuration.configuration.branchNameLinting?.projectIdRegexes.compactMap {
+                do {
+                    return try Regex($0)
+                } catch {
+                    Gluon.print("Warning: regex \($0) is invalid: \(error)", error: true)
+                    return nil
                 }
             }
-        }
+        }()
 
         static let `default`: Self = .init(
             projectIdsInBranches: .never,
             projectIdRegexes: [
-                "[A-Z]{2,10}-[0-9]{2,5}",
-                "(^|[^\\.\\-\\_0-9A-Z])([0-9]{3,5})",
+                "([A-Z]{2,10}-)([0-9]{2,5})",
+                "([0-9]{3,5})",
             ]
         )
     }

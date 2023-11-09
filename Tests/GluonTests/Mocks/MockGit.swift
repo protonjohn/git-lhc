@@ -342,6 +342,15 @@ extension MockCommit {
         date: .now.addingTimeInterval(-.minutes(4))
     )
 
+    static let withProjectIdFromDifferentProject: Self = .mock(
+        parentOIDs: [Self.developCommit(indexFromRoot: 2).oid],
+        message: """
+            fix(fix): fixy fix
+
+            Project-Id: OTHER-1234
+            """
+    )
+
     static let withMultipleProjectIdsFromDifferentProjects: Self = .mock(
         parentOIDs: [Self.developCommit(indexFromRoot: 2).oid],
         message: """
@@ -433,7 +442,8 @@ extension MockCommit {
             .subjectWithInvalidCategory,
             .withProjectId,
             .withMultipleProjectIds,
-            .withMultipleProjectIdsFromDifferentProjects
+            .withMultipleProjectIdsFromDifferentProjects,
+            .withProjectIdFromDifferentProject
         ]
 
         return commits.reduce(into: [:]) { (partialResult: inout [OID: Self], commit: MockCommit) in
@@ -458,6 +468,8 @@ extension MockBranch {
     static let branchWithMismatchedFullProjectIdInLastComponent: Self = .branch(name: "abc/test/TEST-5678-this-is-a-bad-branch", head: .withProjectId)
     static let branchWithPartialProjectIdInLastComponent: Self = .branch(name: "abc/test/1234-this-is-a-good-branch", head: .withProjectId)
     static let branchWithMismatchedPartialProjectIdInLastComponent: Self = .branch(name: "abc/test/5678-this-is-a-bad-branch", head: .withProjectId)
+    static let branchWithOtherProjectId: Self = .branch(name: "abc/test/OTHER-1234-this-is-okay-if-it-still-matches", head: .withProjectIdFromDifferentProject)
+    static let branchWithMultipleProjectIds: Self = .branch(name: "abc/test/TEST-1234-TEST-5678-OTHER-9012-multiple-project-ids", head: .withMultipleProjectIdsFromDifferentProjects)
 
     static let hotfix: Self = .branch(name: "hotfix", head: .hotfixNotOnDevelop)
 
@@ -480,7 +492,9 @@ extension MockBranch {
         .branchWithFullProjectIdInLastComponent,
         .branchWithPartialProjectIdInLastComponent,
         .branchWithMismatchedFullProjectIdInLastComponent,
-        .branchWithMismatchedPartialProjectIdInLastComponent
+        .branchWithMismatchedPartialProjectIdInLastComponent,
+        .branchWithOtherProjectId,
+        .branchWithMultipleProjectIds
     ]
 }
 

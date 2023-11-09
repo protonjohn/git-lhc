@@ -30,6 +30,11 @@ struct Lint: ParsableCommand, VerboseCommand {
         .configuration
     }
 
+    struct ProjectID {
+        let value: String
+        let components: [String]
+    }
+
     func run() throws {
         SwiftGit2.initialize()
         let repo = try Gluon.openRepo(at: parent.repo)
@@ -81,29 +86,6 @@ struct Lint: ParsableCommand, VerboseCommand {
                 throw MultipleLintingErrors(errors: errors)
             }
         }
-    }
-
-    func extractProjectIds(from string: String) throws -> [String] {
-        var result: [String] = []
-        let components = string.split(separator: "/")
-
-        guard let regexes = try Configuration.configuration.branchNameLinting?.branchRegexes, !regexes.isEmpty else {
-            return []
-        }
-
-        for regex in regexes {
-            for component in components {
-                var string: Substring = component[...]
-                while let match = try regex.firstMatch(in: string),
-                      let substring = match.output[0].substring {
-                    result.append(String(substring))
-                    string = string.advanced(by: substring.count)
-                }
-                guard result.isEmpty else { return result }
-            }
-        }
-
-        return []
     }
 
     func lintBaseFromGitlabCI(for repo: Repositoryish, head: ReferenceType) throws -> ObjectID? {
@@ -186,13 +168,14 @@ struct Lint: ParsableCommand, VerboseCommand {
 
     func lintTrailers(of commit: Commitish, branchName: String?) throws {
         guard let trailerName = Self.config.projectIdTrailerName,
-              let branchName,
-              case let projectIds = try extractProjectIds(from: branchName),
-              !projectIds.isEmpty else {
-            printIfVerbose("No project ids found in branch name, skipping trailer linting.")
+              let branchName else {
+            printIfVerbose("No trailer name configured or not a branch, skipping trailer linting.")
 
             return
         }
+
+        let projectIds = branchName.components(separatedBy: "/")
+            .compactMap(ProjectID.init(string:))
 
         printIfVerbose("Linting trailers...")
 
@@ -203,20 +186,55 @@ struct Lint: ParsableCommand, VerboseCommand {
             throw LintingError(commit, .trailersMissing(underlyingError: error))
         }
 
-        for var projectId in projectIds {
-            if let prefix = Self.config.projectPrefix, !projectId.starts(with: prefix) {
-                projectId = prefix + projectId
-            }
-
+        for projectId in projectIds {
             printIfVerbose("Checking that commit has trailer for \(projectId)...")
 
             guard trailers.contains(where: {
                 $0.key == trailerName &&
-                $0.value == projectId
+                $0.value == projectId.value
             }) else {
-                throw LintingError(commit, .missingSpecificTrailer(named: trailerName, withValue: projectId))
+                throw LintingError(commit, .missingSpecificTrailer(named: trailerName, withValue: projectId.value))
             }
         }
+    }
+}
+
+extension Lint.ProjectID {
+    init?(string: String) {
+        guard let regexes = Configuration.BranchNameLinting.branchRegexes, !regexes.isEmpty else {
+            return nil
+        }
+
+        for regex in regexes {
+            guard let match = try? regex.firstMatch(in: string),
+                  let firstGroup = match.output.first,
+                  let substring = firstGroup.substring else {
+                continue
+            }
+
+            let matchString = String(substring)
+            if match.output.count > 1,
+               let secondGroupSubstring = match.output[1].substring,
+               matchString != String(secondGroupSubstring) {
+                self.value = matchString
+                self.components = match.output[1...].compactMap { value in
+                    guard let component = value.substring, !component.isEmpty else {
+                        return nil
+                    }
+                    return String(component)
+                }
+            } else if let prefix = Configuration.configuration.projectPrefix,
+                      !matchString.starts(with: prefix) {
+                self.value = prefix + matchString
+                self.components = [prefix, matchString]
+            } else {
+                self.value = matchString
+                self.components = []
+            }
+            return
+        }
+
+        return nil
     }
 }
 

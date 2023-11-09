@@ -2,7 +2,7 @@
 
 .create_changelog:
   script:
-    - mint run gluon changelog --dry-run --show latest --format json --output "${GLUON_CHANGELOG_PATH:-changelog.json}"
+    - mint run gluon changelog --dry-run --show latest --format json --output "${GLUON_CHANGELOG_PATH:-release.json}"
 
 .create_release:
   release:
@@ -18,7 +18,7 @@ build:describe:
 
 build:fastlane:
   script:
-    - !reference [.create_changelog, script]
+    - !reference [build:describe, script]
     - fastlane "${GLUON_FASTLANE_LANE:-build}"
   artifacts:
     paths:
@@ -26,7 +26,7 @@ build:fastlane:
 
 build:makefile:
   script:
-    - !reference [.create_changelog, script]
+    - !reference [build:describe, script]
     - make ${GLUON_MAKEFILE_TARGET}
   artifacts:
     paths:
