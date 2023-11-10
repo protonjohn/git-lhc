@@ -24,13 +24,23 @@ struct ConventionalCommit: Codable {
         let value: String
     }
 
-    enum VersionBump: Codable, Equatable {
+    enum VersionBump: Codable, Equatable, Comparable {
         case prerelease(channel: String)
         case patch
         case minor
         case major
 
         static let `default`: Self = .patch
+
+        static func < (lhs: Self, rhs: Self) -> Bool {
+            switch (lhs, rhs) {
+            case (.prerelease, _): return true
+            case (.patch, .minor): return true
+            case (.patch, .major): return true
+            case (.minor, .major): return true
+            default: return false
+            }
+        }
     }
 
     let header: Header
@@ -192,7 +202,10 @@ extension Array<ConventionalCommit> {
         var result: ConventionalCommit.VersionBump = .patch
 
         for item in self {
-            result = item.versionBump
+            let thisBump = item.versionBump
+            if thisBump > result {
+                result = thisBump
+            }
             if result == .major {
                 break
             }
