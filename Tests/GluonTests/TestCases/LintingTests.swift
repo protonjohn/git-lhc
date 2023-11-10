@@ -1,5 +1,5 @@
 //
-//  ChangelogTests.swift
+//  LintingTests.swift
 //
 //  Created by John Biggs on 06.10.23.
 //

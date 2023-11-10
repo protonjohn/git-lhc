@@ -16,7 +16,7 @@ struct Gluon: AsyncParsableCommand {
         abstract: "An integration tool for easier cross-team collaboration.",
         subcommands: [
             Lint.self,
-            Changelog.self,
+            DescribeRelease.self,
             CreateRelease.self,
             FindVersions.self,
             ReplaceVersions.self,

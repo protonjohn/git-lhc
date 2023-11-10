@@ -6,8 +6,8 @@ import Foundation
 import PackagePlugin
 
 @main
-struct EmbedChangelog {
-    static let outputPathKey = "GLUON_CHANGELOG_OUTPUT_PATH"
+struct EmbedReleaseDescription {
+    static let outputPathKey = "GLUON_RELEASE_INFO_OUTPUT_PATH"
 
     static var outputPath: String? {
         ProcessInfo.processInfo.environment[Self.outputPathKey]
@@ -21,7 +21,7 @@ struct EmbedChangelog {
                 displayName: "Gluon",
                 executable: toolPath,
                 arguments: [
-                    "changelog",
+                    "describe-release",
                     "--format", "json",
                     "--show", "all",
                     "-o", path
@@ -31,7 +31,7 @@ struct EmbedChangelog {
     }
 }
 
-extension EmbedChangelog: BuildToolPlugin {
+extension EmbedReleaseDescription: BuildToolPlugin {
     func createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
         let tool = try context.tool(named: "gluon")
         return try createBuildCommands(toolPath: tool.path)
@@ -41,7 +41,7 @@ extension EmbedChangelog: BuildToolPlugin {
 #if canImport(XcodeProjectPlugin)
 import XcodeProjectPlugin
 
-extension EmbedChangelog: XcodeBuildToolPlugin {
+extension EmbedReleaseDescription: XcodeBuildToolPlugin {
     func createBuildCommands(context: XcodePluginContext, target: XcodeTarget) throws -> [Command] {
         let tool = try context.tool(named: "gluon")
         return try createBuildCommands(toolPath: tool.path)

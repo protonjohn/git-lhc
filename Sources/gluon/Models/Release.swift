@@ -197,7 +197,7 @@ extension Release.Category {
         return changelogName
     }
 
-    var allowedInChangelog: Bool {
+    var allowedInReleaseDescription: Bool {
         guard let category = Configuration.get(\.commitCategories).first(where: { $0.name == self }),
               let excludeFromChangelog = category.excludeFromChangelog else {
             return true
@@ -242,7 +242,7 @@ extension Release: CustomStringConvertible {
         }
 
         result.append("""
-            \(changes.filter(\.key.allowedInChangelog).reduce(into: "") { result, category in
+            \(changes.filter(\.key.allowedInReleaseDescription).reduce(into: "") { result, category in
                 result += "## \(category.key.describe()):\n"
                 result += category.value.map(\.description).joined(separator: "\n")
                 result += "\n"

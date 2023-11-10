@@ -1,5 +1,5 @@
 //
-//  Changelog.swift
+//  DescribeRelease.swift
 //  
 //
 //  Created by John Biggs on 11.10.23.
@@ -10,7 +10,7 @@ import ArgumentParser
 import SwiftGit2
 import Version
 
-struct Changelog: ParsableCommand {
+struct DescribeRelease: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Display the changelog for the specified version(s)."
     )
@@ -94,7 +94,7 @@ struct Changelog: ParsableCommand {
             releases = [release]
         case let .exact(version):
             guard let release = try repo.release(for: train, exactVersion: version) else {
-                throw ChangelogError.versionNotFound(version: version, train: train)
+                throw DescribeReleaseError.versionNotFound(version: version, train: train)
             }
 
             releases = [release]
@@ -141,7 +141,7 @@ enum OutputSpec: ExpressibleByArgument {
     }
 }
 
-enum ChangelogError: Error, CustomStringConvertible {
+enum DescribeReleaseError: Error, CustomStringConvertible {
     case emptyRelease(from: TagReferenceish, to: ObjectID)
     case versionNotFound(version: Version, train: Configuration.Train?)
 

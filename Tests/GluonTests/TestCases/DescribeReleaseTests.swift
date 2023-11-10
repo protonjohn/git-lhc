@@ -1,5 +1,5 @@
 //
-//  ChangelogTests.swift
+//  DescribeReleaseTests.swift
 //  
 //
 //  Created by John Biggs on 13.10.23.
@@ -12,11 +12,11 @@ import SwiftGit2
 
 @testable import gluon
 
-class ChangelogTests: GluonTestCase {
+class DescribeReleaseTests: GluonTestCase {
     let decoder = JSONDecoder()
 
     func invoke(_ args: [String] = []) throws {
-        let changelog = try Changelog.parse(args)
+        let changelog = try DescribeRelease.parse(args)
         try changelog.run()
     }
 
@@ -175,7 +175,7 @@ class ChangelogTests: GluonTestCase {
     }
 
     /// Tests the changelog finds versions properly when using a train/tag prefix.
-    func testChangelogWithTagPrefix() throws {
+    func testDescribeReleaseWithTagPrefix() throws {
         Configuration.configuration = .init(
             projectPrefix: nil,
             projectIdTrailerName: nil,
@@ -190,7 +190,7 @@ class ChangelogTests: GluonTestCase {
         )
 
         let subtests = [
-            subtestChangelogWithTagPrefixSpecificVersion
+            subtestDescribeReleaseWithTagPrefixSpecificVersion
         ]
 
         for subtest in subtests {
@@ -199,7 +199,7 @@ class ChangelogTests: GluonTestCase {
         }
     }
 
-    func subtestChangelogWithTagPrefixSpecificVersion() throws {
+    func subtestDescribeReleaseWithTagPrefixSpecificVersion() throws {
         try invoke(["--format", "json", "--show", "0.1.0", "--train", "test"])
 
         XCTAssertEqual(errorOutput, "")

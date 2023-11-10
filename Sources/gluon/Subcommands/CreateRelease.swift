@@ -157,7 +157,8 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
 
             \(message)
 
-            """) else {
+            Continue?
+            """, continueText: false) else {
             throw CreateReleaseError.userAborted
         }
 

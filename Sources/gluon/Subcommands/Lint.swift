@@ -187,7 +187,7 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
 
         for projectId in projectIds {
-            printIfVerbose("Checking that commit has trailer for \(projectId)...")
+            printIfVerbose("Checking that commit has trailer for \(projectId.value)...")
 
             guard trailers.contains(where: {
                 $0.key == trailerName &&

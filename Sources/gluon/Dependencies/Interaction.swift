@@ -97,9 +97,9 @@ extension QuietCommand {
         return Gluon.promptForPassword()
     }
 
-    func promptForConfirmationIfNotQuiet(_ prompt: String, defaultAction: Bool = true) -> Bool {
+    func promptForConfirmationIfNotQuiet(_ prompt: String, continueText: Bool = true, defaultAction: Bool = true) -> Bool {
         guard !quiet else { return true }
 
-        return Gluon.promptForConfirmation(prompt, defaultAction: defaultAction)
+        return Gluon.promptForConfirmation(prompt, continueText: continueText, defaultAction: defaultAction)
     }
 }

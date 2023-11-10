@@ -9,8 +9,8 @@ let package = Package(
     products: [
         // Products define the executables and libraries a package produces, and make them visible to other packages.
         .plugin(
-            name: "EmbedChangelog",
-            targets: ["EmbedChangelog"]
+            name: "EmbedReleaseDescription",
+            targets: ["EmbedReleaseDescription"]
         ),
         .plugin(
             name: "EmbedVersion",
@@ -29,6 +29,7 @@ let package = Package(
         .package(url: "https://github.com/protonjohn/SwiftGit2", exact: "0.10.2"),
         .package(url: "https://github.com/mxcl/Version", exact: "2.0.1"),
         .package(url: "https://github.com/pointfreeco/swift-parsing", exact: "0.13.0"),
+        .package(url: "https://github.com/protonjohn/plistutil", exact: "0.0.2"),
     ],
     targets: [
         .executableTarget(
@@ -45,7 +46,14 @@ let package = Package(
             ]
         ),
         .plugin(
-            name: "EmbedChangelog",
+            name: "EmbedReleaseDescription",
+            capability: .buildTool(),
+            dependencies: [
+                "gluon"
+            ]
+        ),
+        .plugin(
+            name: "EmbedReleaseObject",
             capability: .buildTool(),
             dependencies: [
                 "gluon"

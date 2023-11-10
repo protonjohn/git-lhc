@@ -54,6 +54,7 @@ extension CodableCollection: Codable {
     }
 
     init(from decoder: Decoder) throws {
+        typealias Empty = String?
         let container = try decoder.singleValueContainer()
 
         let cases = [
@@ -97,8 +98,6 @@ struct CodableCollectionError: Error, CustomStringConvertible {
 }
 
 // MARK: - CodableCollection convenience extensions
-
-private typealias Empty = String?
 
 extension CodableCollection: ExpressibleByNilLiteral {
     init(nilLiteral: ()) {

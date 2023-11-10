@@ -12,7 +12,6 @@ import Parsing
 import Version
 
 struct ConventionalCommit: Codable {
-    /// This struct is only used for parsing purposes.
     struct Header: Codable, Equatable {
         let type: String
         let scope: String?
