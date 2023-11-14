@@ -75,7 +75,7 @@ extension FileManagerish {
         url = url.appending(path: fileName)
 
         var thisIsDir: Bool?
-        while !fileExists(atPath: url.path(), isDirectory: &thisIsDir), isDirectory != thisIsDir {
+        while !fileExists(atPath: url.path(), isDirectory: &thisIsDir) || isDirectory != thisIsDir {
             url = url.deletingLastPathComponent()
 
             guard url.path() != "/" &&
