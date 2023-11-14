@@ -190,7 +190,14 @@ enum ConfigurationError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case let .noSuchTrain(name):
-            return "No train exists with name \(name)."
+            var result = "No train exists with name \(name)."
+            guard let trains = Configuration.configuration.trains else {
+                return result
+            }
+
+            let trainNames = trains.map { $0.displayName ?? $0.name }
+            result += " Available trains:\n\(trainNames.joined(separator: "\n"))"
+            return result
         case let .invalidRegex(string, underlyingError):
             return """
                 Configuration contains an invalid regular expression: \(string).
