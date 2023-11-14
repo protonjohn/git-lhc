@@ -163,8 +163,8 @@ struct Configuration: Codable, Equatable {
     }
 
     static func train(named name: String) throws -> Train {
-        guard let configTrain = Self.configuration
-            .trains?.first(where: { $0.name == name }) else {
+        let config = Self.configuration
+        guard let configTrain = config.trains?.first(where: { $0.name == name || $0.displayName == name }) else {
             throw ConfigurationError.noSuchTrain(name)
         }
         return configTrain
