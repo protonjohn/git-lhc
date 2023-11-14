@@ -7,12 +7,13 @@
 
 import Foundation
 import XCTest
+import CodingCollection
 import Yams
 
 @testable import gluon
 
 class ReplaceVersionsTests: GluonTestCase {
-    static let structuredData: CodableCollection = [
+    static let structuredData: CodingCollection = [
         "CFBundleVersion": "Version",
         "CFBundleShortVersionString": "VersionString",
         "BuildIdentifiers": "Foo",
@@ -119,19 +120,19 @@ class ReplaceVersionsTests: GluonTestCase {
             """)
 
         guard let jsonContents = Gluon.fileManager.contents(atPath: "\(Self.repoPath)/version.json"),
-              let jsonCollection = try? JSONDecoder().decode(CodableCollection.self, from: jsonContents),
+              let jsonCollection = try? JSONDecoder().decode(CodingCollection.self, from: jsonContents),
               case let .dictionary(jsonDict) = jsonCollection else {
             throw "No version file (or corrupted version file) at version.json"
         }
 
         guard let yamlContents = Gluon.fileManager.contents(atPath: "\(Self.repoPath)/version.yaml"),
-              let yamlCollection = try? YAMLDecoder().decode(CodableCollection.self, from: yamlContents),
+              let yamlCollection = try? YAMLDecoder().decode(CodingCollection.self, from: yamlContents),
               case let .dictionary(yamlDict) = yamlCollection else {
             throw "No version file (or corrupted version file) at version.yaml"
         }
 
         guard let plistContents = Gluon.fileManager.contents(atPath: "\(Self.repoPath)/version.plist"),
-              let plistCollection = try? PropertyListDecoder().decode(CodableCollection.self, from: plistContents),
+              let plistCollection = try? PropertyListDecoder().decode(CodingCollection.self, from: plistContents),
               case let .dictionary(plistDict) = plistCollection else {
             throw "No version file (or corrupted version file) at version.plist"
         }

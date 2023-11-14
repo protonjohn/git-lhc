@@ -10,6 +10,7 @@ import ArgumentParser
 import Yams
 import Version
 import SwiftGit2
+import CodingCollection
 
 struct ReplaceVersions: ParsableCommand {
     typealias Format = Configuration.VersionReplacementFormat
@@ -72,18 +73,18 @@ struct ReplaceVersions: ParsableCommand {
         }
     }
 
-    func decode(contents: Data, format: Format) throws -> [String: CodableCollection] {
-        let collection: CodableCollection
+    func decode(contents: Data, format: Format) throws -> [String: CodingCollection] {
+        let collection: CodingCollection
         switch format {
         case .json:
             collection = try JSONDecoder()
-                .decode(CodableCollection.self, from: contents)
+                .decode(CodingCollection.self, from: contents)
         case .yaml:
             collection = try YAMLDecoder()
-                .decode(CodableCollection.self, from: contents)
+                .decode(CodingCollection.self, from: contents)
         case .plist:
             collection = try PropertyListDecoder()
-                .decode(CodableCollection.self, from: contents)
+                .decode(CodingCollection.self, from: contents)
         default:
             fatalError("Unsupported format \(format)")
         }
@@ -92,10 +93,13 @@ struct ReplaceVersions: ParsableCommand {
             throw ReplaceVersionsError.notADictionary(format)
         }
 
-        return dictionary
+        return Dictionary(uniqueKeysWithValues: dictionary.compactMap({
+            guard case let .string(string) = $0.key else { return nil }
+            return (string, $0.value)
+        }))
     }
 
-    func encode(dictionary: [String: CodableCollection], format: Format) throws -> Data? {
+    func encode(dictionary: [String: CodingCollection], format: Format) throws -> Data? {
         let result: StringOrData
         switch format {
         case .json:

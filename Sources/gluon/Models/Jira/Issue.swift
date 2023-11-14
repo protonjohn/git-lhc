@@ -5,6 +5,7 @@
 //
 
 import Foundation
+import CodingCollection
 
 struct Issue: Decodable {
     let id: String
@@ -80,7 +81,7 @@ struct Issue: Decodable {
             }
             self.created = date
 
-            guard let dictionary = try CodableCollection(from: decoder).value as? [String: Any] else {
+            guard let dictionary = try CodingCollection(from: decoder).value as? [String: Any] else {
                 throw DecodingError.dataCorrupted(.init(
                     codingPath: decoder.codingPath,
                     debugDescription: "Couldn't decode extra fields"

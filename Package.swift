@@ -13,6 +13,10 @@ let package = Package(
             targets: ["EmbedReleaseDescription"]
         ),
         .plugin(
+            name: "EmbedReleaseObject",
+            targets: ["EmbedReleaseObject"]
+        ),
+        .plugin(
             name: "EmbedVersion",
             targets: ["EmbedVersion"]
         ),
@@ -29,7 +33,7 @@ let package = Package(
         .package(url: "https://github.com/protonjohn/SwiftGit2", exact: "0.10.2"),
         .package(url: "https://github.com/mxcl/Version", exact: "2.0.1"),
         .package(url: "https://github.com/pointfreeco/swift-parsing", exact: "0.13.0"),
-        .package(url: "https://github.com/protonjohn/plistutil", exact: "0.0.2"),
+        .package(url: "https://github.com/protonjohn/plistutil", exact: "0.1.0-beta.1"),
     ],
     targets: [
         .executableTarget(
@@ -39,6 +43,7 @@ let package = Package(
                 "Yams",
                 "SwiftGit2",
                 "Version",
+                .product(name: "CodingCollection", package: "plistutil"),
                 .product(name: "Parsing", package: "swift-parsing"),
             ],
             resources: [
@@ -56,7 +61,8 @@ let package = Package(
             name: "EmbedReleaseObject",
             capability: .buildTool(),
             dependencies: [
-                "gluon"
+                "gluon",
+                "plistutil"
             ]
         ),
         .plugin(

@@ -76,7 +76,7 @@ extension Release: Codable {
         case train
         case tagged
         case changes
-        case body
+        case body = "changelog"
         case channel
     }
 
