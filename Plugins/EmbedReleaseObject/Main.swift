@@ -39,7 +39,9 @@ struct EmbedReleaseObject {
                 executable: plistutil,
                 arguments: [
                     "convert",
-                    "--format",
+                    "--input-format",
+                    "plist",
+                    "--output-format",
                     "swift",
                     "-o",
                     sourcePath.string,
