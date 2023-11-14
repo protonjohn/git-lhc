@@ -65,7 +65,7 @@ extension FileManagerish {
 }
 
 extension FileManagerish {
-    func traverseUpwardsUntilFinding(fileName: String, startingPoint: String? = nil, isDirectory: Bool = false) -> String? {
+    func traverseUpwardsUntilFinding(fileName: String, startingPoint: String? = nil, isDirectory: Bool? = false) -> String? {
         var url: URL
         if let startingPoint {
             url = URL(filePath: startingPoint)
@@ -75,7 +75,8 @@ extension FileManagerish {
         url = url.appending(path: fileName)
 
         var thisIsDir: Bool?
-        while !fileExists(atPath: url.path(), isDirectory: &thisIsDir) || isDirectory != thisIsDir {
+        while !fileExists(atPath: url.path(), isDirectory: &thisIsDir) ||
+                (isDirectory != nil && isDirectory != thisIsDir) {
             url = url.deletingLastPathComponent()
 
             guard url.path() != "/" &&
@@ -83,9 +84,17 @@ extension FileManagerish {
                 return nil
             }
 
-            let directoryHint: URL.DirectoryHint = isDirectory ? .isDirectory : .notDirectory
+            let directoryHint: URL.DirectoryHint
+            switch isDirectory {
+            case true:
+                directoryHint = .isDirectory
+            case false:
+                directoryHint = .notDirectory
+            default: // (nil)
+                directoryHint = .notDirectory
+            }
             url = url
-                .appending(component: "../", directoryHint: .isDirectory)
+                .appending(component: "../", directoryHint: .inferFromPath)
                 .appending(component: fileName, directoryHint: directoryHint)
         }
         return url.path()

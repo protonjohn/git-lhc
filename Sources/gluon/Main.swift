@@ -30,7 +30,7 @@ struct Gluon: AsyncParsableCommand {
             help: "The path to the repository."
         )
         var repo: String = {
-            guard let path = Gluon.fileManager.traverseUpwardsUntilFinding(fileName: ".git", isDirectory: true) else {
+            guard let path = Gluon.fileManager.traverseUpwardsUntilFinding(fileName: ".git", isDirectory: nil) else {
                 return Gluon.fileManager.currentDirectoryPath
             }
 
