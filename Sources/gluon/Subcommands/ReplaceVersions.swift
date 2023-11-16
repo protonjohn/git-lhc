@@ -206,7 +206,6 @@ struct ReplaceVersions: ParsableCommand {
     func run() throws {
         SwiftGit2.initialize()
         var repo = try Gluon.openRepo(at: parent.repo)
-        let prereleaseChannel = channel.isPrerelease ? channel.rawValue : nil
 
         let version: Version
         if let forcedVersion {
@@ -214,7 +213,7 @@ struct ReplaceVersions: ParsableCommand {
         } else if let latest = try repo.latestRelease(
             for: train,
             allowDirty: dryRun,
-            untaggedPrereleaseChannel: prereleaseChannel,
+            untaggedReleaseChannel: channel,
             forceLatestVersionTo: nil
         ), let latestVersion = latest.version {
             version = latestVersion

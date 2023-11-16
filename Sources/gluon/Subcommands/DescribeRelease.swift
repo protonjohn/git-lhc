@@ -69,22 +69,21 @@ struct DescribeRelease: ParsableCommand {
         SwiftGit2.initialize()
 
         let repo = try Gluon.openRepo(at: parent.repo)
-        let prereleaseChannel = channel.isPrerelease ? channel.rawValue : nil
-        
+
         let releases: [Release]
         switch show {
         case .all:
             releases = try repo.allReleases(
                 for: train,
                 allowDirty: dryRun,
-                untaggedPrereleaseChannel: prereleaseChannel,
+                untaggedReleaseChannel: channel,
                 forceLatestVersionTo: nil
             )
         case .latest:
             guard let release = try repo.latestRelease(
                 for: train,
                 allowDirty: dryRun,
-                untaggedPrereleaseChannel: prereleaseChannel,
+                untaggedReleaseChannel: channel,
                 forceLatestVersionTo: nil
             ) else {
                 releases = []

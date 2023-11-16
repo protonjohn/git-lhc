@@ -214,18 +214,25 @@ extension Array<ConventionalCommit> {
         return result
     }
 
-    func nextVersion(after previous: Version, prereleaseChannel: String? = nil) -> Version {
-        if let prereleaseChannel {
-            if previous.isPrerelease {
-                return previous
-                    .bumping(.prerelease(channel: prereleaseChannel))
-            } else {
-                return previous
-                    .bumping(versionBump)
-                    .bumpingPrerelease(channel: prereleaseChannel)
+    func nextVersion(after versions: [Version], channel: ReleaseChannel = .production) -> Version {
+        let sorted = versions.sorted()
+        let production = sorted.filter { $0.releaseChannel == .production }
+
+        guard let last = production.last else {
+            return Version(0, 0, 1)
+        }
+
+        var releaseBump = last.bumping(versionBump)
+        if channel.isPrerelease {
+            let channelVersions = versions.filter { $0.releaseChannel == channel }
+
+            if let lastChannelRelease = channelVersions.last,
+               lastChannelRelease.shortVersion == releaseBump {
+                releaseBump = lastChannelRelease
             }
+            return releaseBump.bumpingPrerelease(channel: channel.rawValue)
         } else {
-            return previous.bumping(versionBump)
+            return releaseBump
         }
     }
 }

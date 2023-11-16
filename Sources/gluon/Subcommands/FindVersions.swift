@@ -68,7 +68,6 @@ struct FindVersions: ParsableCommand {
             try repo.allReleases(
                 for: train,
                 allowDirty: true,
-                untaggedPrereleaseChannel: nil,
                 forceLatestVersionTo: nil
             ).filter { release in
                 print(release)

@@ -9,8 +9,8 @@ import Foundation
 import Version
 
 extension Version {
-    var isPrerelease: Bool {
-        !prereleaseIdentifiers.isEmpty
+    var shortVersion: Self {
+        Version(major, minor, patch)
     }
 
     func prereleaseIdentifier(after identifier: String?) -> String {

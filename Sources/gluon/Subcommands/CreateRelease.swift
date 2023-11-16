@@ -209,8 +209,6 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
     mutating func run() async throws {
         SwiftGit2.initialize()
 
-        let prereleaseChannel = channel.isPrerelease ? channel : nil
-
         if buildTimestamp {
             buildIdentifiers.insert(Gluon.timestamp(), at: 0)
         }
@@ -219,7 +217,7 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
         guard var release = try repo.latestRelease(
             for: train,
             allowDirty: true,
-            untaggedPrereleaseChannel: prereleaseChannel?.rawValue,
+            untaggedReleaseChannel: channel,
             forceLatestVersionTo: forcedVersion
         )?.adding(
             prereleaseIdentifiers: prereleaseIdentifiers,

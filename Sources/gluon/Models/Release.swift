@@ -60,6 +60,17 @@ enum ReleaseChannel: String, CaseIterable, Codable, ExpressibleByArgument {
     }
 }
 
+extension Version {
+    var releaseChannel: ReleaseChannel {
+        for identifier in prereleaseIdentifiers {
+            if let channel = ReleaseChannel(rawValue: identifier) {
+                return channel
+            }
+        }
+        return .production
+    }
+}
+
 enum ReleaseFormat: String, CaseIterable, ExpressibleByArgument {
     case text
     case json
@@ -306,27 +317,39 @@ extension Repositoryish {
         }.sorted { $0.version < $1.version }
     }
 
-    private func lastReachableTag(
+    private func lastReachableRelease(
         among references: ArraySlice<TaggedRelease>,
         from: ObjectID,
-        inclusive: Bool = false,
-        prerelease: Bool = false
+        inclusive: Bool = false
     ) throws -> TaggedRelease? {
         try references.last {
             try (inclusive || $0.tag.oid != from) &&
-                (prerelease || !$0.version.isPrerelease) &&
+                $0.version.releaseChannel == .production &&
                 isReachable($0.tag.oid, from: from)
+        }
+    }
+
+    private func taggedReleaseRanges(_ taggedReleases: [TaggedRelease]) throws -> [ReleaseRange] {
+        return try taggedReleases.enumerated().reduce(into: []) { result, element in
+            let (i, (tag, _)) = element
+            let lastVersion = try lastReachableRelease(
+                among: taggedReleases[0..<i],
+                from: tag.oid
+            )
+            result.append((lastVersion, tag))
         }
     }
 
     private func releases(
         for train: Configuration.Train?,
         fromRanges ranges: [ReleaseRange],
-        untaggedRangePrereleaseChannel: String? = nil,
+        untaggedRangeReleaseChannel: ReleaseChannel = .production,
         forceLatestVersionTo forcedVersion: Version? = nil
     ) throws -> [Release] {
-        try ranges.reduce(into: []) {
-            let repoCommits = try commits(from: $1.release.oid, since: $1.last?.tag.oid)
+        var versionsSoFar: [Version] = []
+        var result: [Release] = []
+        for (last, release) in ranges {
+            let repoCommits = try commits(from: release.oid, since: last?.tag.oid)
             var badCommits: Int = 0
             let commits: [(oid: OID, cc: ConventionalCommit)] = repoCommits.compactMap {
                 do {
@@ -360,7 +383,7 @@ extension Repositoryish {
             }
 
             var body: String?
-            if let tagReference = $1.release as? TagReferenceish,
+            if let tagReference = release as? TagReferenceish,
                let message = tagReference.message {
                 if let conventionalTag = try? ConventionalCommit(message: message) {
                     // Annotated tags formatted like conventional commits look like:
@@ -381,7 +404,7 @@ extension Repositoryish {
 
             var tagged = false
             let version: Version
-            if let releaseTag = $1.release as? TagReferenceish,
+            if let releaseTag = release as? TagReferenceish,
                let taggedVersion = Version(
                    prefix: train?.tagPrefix,
                    versionString: releaseTag.name
@@ -391,16 +414,17 @@ extension Repositoryish {
                 tagged = true
             } else if let forcedVersion {
                 version = forcedVersion
-            } else if let last = $1.last {
+            } else if let last {
                 version = conventionalCommits.nextVersion(
-                    after: last.version,
-                    prereleaseChannel: untaggedRangePrereleaseChannel
+                    after: versionsSoFar + [last.version],
+                    channel: untaggedRangeReleaseChannel
                 )
             } else {
                 version = Version(major: 0, minor: 0, patch: 1)
             }
 
-            $0.append(.init(
+            versionsSoFar.append(version)
+            result.append(.init(
                 version: version,
                 tagged: tagged,
                 train: train,
@@ -409,6 +433,7 @@ extension Repositoryish {
                 correspondingHashes: commits.map(\.oid)
             ))
         }
+        return result
     }
 
     public func release(for train: Configuration.Train?, exactVersion version: Version) throws -> Release? {
@@ -424,10 +449,9 @@ extension Repositoryish {
             return nil
         }
 
-        let lastVersion = try lastReachableTag(
+        let lastVersion = try lastReachableRelease(
             among: taggedReleases[0..<index],
-            from: releaseTag.tag.oid,
-            prerelease: false
+            from: releaseTag.tag.oid
         )
 
         return try releases(for: train, fromRanges: [(lastVersion, releaseTag.tag)]).first
@@ -436,16 +460,15 @@ extension Repositoryish {
     public func latestRelease(
         for train: Configuration.Train?,
         allowDirty: Bool,
-        untaggedPrereleaseChannel: String?,
+        untaggedReleaseChannel: ReleaseChannel = .production,
         forceLatestVersionTo forcedVersion: Version?
     ) throws -> Release? {
         let head: ReferenceType = try currentBranch() ?? HEAD()
         let taggedReleases = try tagsAndVersions(for: train)
 
-        let lastVersion = try lastReachableTag(
+        let lastVersion = try lastReachableRelease(
             among: taggedReleases[...],
-            from: head.oid,
-            prerelease: untaggedPrereleaseChannel != nil
+            from: head.oid
         )
 
         if let thisTag = head as? TagReferenceish {
@@ -453,7 +476,7 @@ extension Repositoryish {
                 for: train,
                 fromRanges: [(lastVersion, thisTag)]
             ).first
-        } else if let thisVersion = try lastReachableTag(among: taggedReleases[...], from: head.oid, inclusive: true),
+        } else if let thisVersion = try lastReachableRelease(among: taggedReleases[...], from: head.oid, inclusive: true),
             thisVersion.tag.oid == head.oid {
             // We could have been passed a ReferenceType for HEAD that wasn't a tag, even if HEAD is in fact tagged.
             // If we do a reverse lookup for the latest tag and it happens to be the same OID as HEAD, use that tag
@@ -463,12 +486,29 @@ extension Repositoryish {
                 fromRanges: [(lastVersion, thisVersion.tag)]
             ).first
         } else if allowDirty {
+            // The tag hasn't been computed yet, so we'll need to create one.
+            // For this, we need to make sure that `releases' has seen all of the possible release tags for the given
+            // release channel, if that release channel isn't production, in order to calculate the version correctly.
+            var ranges = [(lastVersion, head)]
+            if untaggedReleaseChannel.isPrerelease {
+                let otherVersions = try taggedReleaseRanges(
+                    taggedReleases.filter {
+                        $0.version.releaseChannel == untaggedReleaseChannel &&
+                        $0.version > (lastVersion?.version ?? Version(0, 0, 0))
+                    }
+                )
+                ranges = otherVersions + ranges
+            }
+
+            // We pass multiple values to `releases' so that it can see all of the prereleases for a channel, so make
+            // sure we only return the last value with the highest version, which
+            // should be our element.
             return try releases(
                 for: train,
-                fromRanges: [(lastVersion, head)],
-                untaggedRangePrereleaseChannel: untaggedPrereleaseChannel,
+                fromRanges: ranges,
+                untaggedRangeReleaseChannel: untaggedReleaseChannel,
                 forceLatestVersionTo: forcedVersion
-            ).first
+            ).last
         } else if let lastVersion {
             return try release(
                 for: train,
@@ -482,26 +522,18 @@ extension Repositoryish {
     public func allReleases(
         for train: Configuration.Train?,
         allowDirty: Bool,
-        untaggedPrereleaseChannel: String?,
+        untaggedReleaseChannel: ReleaseChannel = .production,
         forceLatestVersionTo forcedVersion: Version?
     ) throws -> [Release] {
         let head: ReferenceType = try currentBranch() ?? HEAD()
         let taggedReleases = try tagsAndVersions(for: train)
 
-        var ranges: [ReleaseRange] = try taggedReleases
-            .filter { !$0.version.isPrerelease }
-            .enumerated()
-            .reduce(into: []) { result, element in
-                let (i, (tag, _)) = element
-                let lastVersion = try lastReachableTag(
-                    among: taggedReleases[0..<i],
-                    from: tag.oid
-                )
-                result.append((lastVersion, tag))
-            }
+        var ranges: [ReleaseRange] = try taggedReleaseRanges(
+            taggedReleases.filter { $0.version.releaseChannel == .production }
+        )
 
         if allowDirty, let last = ranges.last, last.release.oid != head.oid {
-            let lastUntaggedVersion = try lastReachableTag(
+            let lastUntaggedVersion = try lastReachableRelease(
                 among: taggedReleases[...],
                 from: head.oid
             )
@@ -512,7 +544,7 @@ extension Repositoryish {
         return try releases(
             for: train,
             fromRanges: ranges.reversed(),
-            untaggedRangePrereleaseChannel: untaggedPrereleaseChannel,
+            untaggedRangeReleaseChannel: untaggedReleaseChannel,
             forceLatestVersionTo: forcedVersion
         )
     }
