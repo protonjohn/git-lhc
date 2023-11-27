@@ -37,7 +37,7 @@ struct EmbedVersion {
 
         return [
             .buildCommand(
-                displayName: "Gluon",
+                displayName: "LHC",
                 executable: toolPath,
                 arguments: [
                     "replace-versions",
@@ -51,7 +51,7 @@ struct EmbedVersion {
 
 extension EmbedVersion: BuildToolPlugin {
     func createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
-        let tool = try context.tool(named: "gluon")
+        let tool = try context.tool(named: "lhc")
 
         let trainName = BuildEnvironmentVariables.trainName.value ?? target.name
         return try createBuildCommands(toolPath: tool.path, trainName: trainName)
@@ -63,7 +63,7 @@ import XcodeProjectPlugin
 
 extension EmbedVersion: XcodeBuildToolPlugin {
     func createBuildCommands(context: XcodePluginContext, target: XcodeTarget) throws -> [Command] {
-        let tool = try context.tool(named: "gluon")
+        let tool = try context.tool(named: "lhc")
 
         let trainName = BuildEnvironmentVariables.trainName.value ?? target.displayName
         return try createBuildCommands(toolPath: tool.path, trainName: trainName)

@@ -13,7 +13,7 @@ struct EmbedReleaseObject {
     }
 
     func createBuildCommands(
-        gluon: Path,
+        lhc: Path,
         plistutil: Path,
         workDirectory: Path
     ) throws -> [Command] {
@@ -24,7 +24,7 @@ struct EmbedReleaseObject {
         return [
             .buildCommand(
                 displayName: "Describe current version",
-                executable: gluon,
+                executable: lhc,
                 arguments: [
                     "describe-release",
                     "--format", "plist",
@@ -56,12 +56,12 @@ struct EmbedReleaseObject {
 
 extension EmbedReleaseObject: BuildToolPlugin {
     func createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
-        let gluon = try context.tool(named: "gluon")
+        let lhc = try context.tool(named: "lhc")
         let plistutil = try context.tool(named: "plistutil")
         let outputDirectory = context.pluginWorkDirectory.appending("GeneratedFiles")
 
         return try createBuildCommands(
-            gluon: gluon.path,
+            lhc: lhc.path,
             plistutil: plistutil.path,
             workDirectory: outputDirectory
         )
@@ -73,12 +73,12 @@ import XcodeProjectPlugin
 
 extension EmbedReleaseObject: XcodeBuildToolPlugin {
     func createBuildCommands(context: XcodePluginContext, target: XcodeTarget) throws -> [Command] {
-        let gluon = try context.tool(named: "gluon")
+        let lhc = try context.tool(named: "lhc")
         let plistutil = try context.tool(named: "plistutil")
         let outputDirectory = context.pluginWorkDirectory.appending("GeneratedFiles")
 
         return try createBuildCommands(
-            gluon: gluon.path,
+            lhc: lhc.path,
             plistutil: plistutil.path,
             workDirectory: outputDirectory
         )

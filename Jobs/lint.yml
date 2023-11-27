@@ -3,4 +3,4 @@
 
 lint:commits:
   script:
-    - mint run gluon lint --verbose
+    - mint run lhc lint --verbose

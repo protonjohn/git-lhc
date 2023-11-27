@@ -18,7 +18,7 @@ struct EmbedReleaseDescription {
 
         return [
             .buildCommand(
-                displayName: "Gluon",
+                displayName: "LHC",
                 executable: toolPath,
                 arguments: [
                     "describe-release",
@@ -33,7 +33,7 @@ struct EmbedReleaseDescription {
 
 extension EmbedReleaseDescription: BuildToolPlugin {
     func createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
-        let tool = try context.tool(named: "gluon")
+        let tool = try context.tool(named: "lhc")
         return try createBuildCommands(toolPath: tool.path)
     }
 }
@@ -43,7 +43,7 @@ import XcodeProjectPlugin
 
 extension EmbedReleaseDescription: XcodeBuildToolPlugin {
     func createBuildCommands(context: XcodePluginContext, target: XcodeTarget) throws -> [Command] {
-        let tool = try context.tool(named: "gluon")
+        let tool = try context.tool(named: "lhc")
         return try createBuildCommands(toolPath: tool.path)
     }
 }

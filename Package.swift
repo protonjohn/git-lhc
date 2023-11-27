@@ -4,7 +4,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "swift-gluon",
+    name: "git-lhc",
     platforms: [.macOS(.v13)],
     products: [
         // Products define the executables and libraries a package produces, and make them visible to other packages.
@@ -21,8 +21,8 @@ let package = Package(
             targets: ["EmbedVersion"]
         ),
         .executable(
-            name: "gluon",
-            targets: ["gluon"]
+            name: "git-lhc",
+            targets: ["git-lhc"]
         ),
     ],
     dependencies: [
@@ -37,7 +37,7 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "gluon",
+            name: "git-lhc",
             dependencies: [
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 "Yams",
@@ -47,21 +47,21 @@ let package = Package(
                 .product(name: "Parsing", package: "swift-parsing"),
             ],
             resources: [
-                .process("gluon.example.yml")
+                .process("lhc.example.yml")
             ]
         ),
         .plugin(
             name: "EmbedReleaseDescription",
             capability: .buildTool(),
             dependencies: [
-                "gluon"
+                "git-lhc"
             ]
         ),
         .plugin(
             name: "EmbedReleaseObject",
             capability: .buildTool(),
             dependencies: [
-                "gluon",
+                "git-lhc",
                 "plistutil"
             ]
         ),
@@ -69,13 +69,13 @@ let package = Package(
             name: "EmbedVersion",
             capability: .buildTool(),
             dependencies: [
-                "gluon"
+                "git-lhc"
             ]
         ),
         .testTarget(
-            name: "GluonTests",
+            name: "LHCTests",
             dependencies: [
-                "gluon",
+                "git-lhc",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]
         )
