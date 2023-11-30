@@ -7,7 +7,8 @@
 
 import Foundation
 import SwiftGit2
-@testable import git_lhc
+import LHCInternal
+import LHC
 
 struct MockCommit: Commitish, Identifiable {
     static var type: GitObjectType = .commit

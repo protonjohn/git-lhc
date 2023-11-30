@@ -9,39 +9,142 @@ import ArgumentParser
 import Version
 import Yams
 import SwiftGit2
+import LHC
+import LHCInternal
 
 @main
 struct LHC: AsyncParsableCommand {
     static var configuration = CommandConfiguration(
-        abstract: "An integration tool for easier cross-team collaboration.",
+        commandName: "git-lhc",
+        abstract: "A tool for git repositories that use conventional commits and semantic versioning.",
         subcommands: [
+            Config.self,
             Lint.self,
-            DescribeRelease.self,
+            Describe.self,
             CreateRelease.self,
-            FindVersions.self,
-            ReplaceVersions.self,
-            CreateDefaultConfig.self,
+            Find.self,
+            Embed.self,
         ]
     )
 
     struct Options: ParsableArguments {
         @Option(
             name: .shortAndLong,
-            help: "The path to the repository."
+            help: .init(
+                "The path to the repository.",
+                discussion: """
+                If not specified, LHC will traverse upwards until it finds a directory or filename called `.git`, and
+                then use that as the repository URL.
+
+                All items passed to LHC with relative paths will be resolved relative to the repository root.
+                """
+            )
         )
-        var repo: String = {
-            guard let path = LHC.fileManager.traverseUpwardsUntilFinding(fileName: ".git", isDirectory: nil) else {
-                return LHC.fileManager.currentDirectoryPath
+        var repo: String = Internal.repoPath
+
+        @Option(
+            name: [.customShort("t"), .customLong("train")],
+            help: .init(
+                "An optional train to supply for configuration.",
+                discussion: """
+                If train is supplied, the build config will be evaluated with the appropriate value defined.
+                """
+            )
+        )
+        var commandLineTrain: String?
+
+        @Option(
+            name: .shortAndLong,
+            help: "An optional channel to supply for configuration. Possible values are \(ReleaseChannel.possibleValues)."
+        )
+        var channel: ReleaseChannel = .environment ?? .production
+
+        lazy var train: String? = {
+            commandLineTrain ?? LHCEnvironment.trainName.value
+        }()
+
+        /// The parsed and ingested configuration file.
+        lazy var config: Configuration.IngestedConfig? = {
+            guard let config = Configuration.getConfig(repo) else {
+                self.config = nil
+                self.options = nil
+                return nil
             }
 
-            let url = URL(filePath: path)
-            var result = url.deletingLastPathComponent().path()
-            while result.hasSuffix("/") {
-                result.removeLast()
+            return try? config.ingest()
+        }()
+
+        /// The options generated from the configuration file with the above train and channel applied.
+        lazy var options: Configuration.Options? = {
+            guard let config else { return nil }
+            return try? config.eval(train: train, channel: channel).options
+        }()
+
+        /// Gets the version from CI if it is set.
+        lazy var forcedVersion: Version? = {
+            guard let tagName = Internal.tagName else {
+                return nil
+            }
+
+            return Version(prefix: options?.tagPrefix, versionString: tagName)
+        }()
+
+        mutating func allTrainOptions() throws -> [String?: Configuration.Options] {
+            guard let options else { return [:] }
+            guard let train = options.train else { return [nil: options] }
+            guard var trains = options.trains else { return [train: options] }
+
+            var result: [String: Configuration.Options] = [:]
+            if let train = options.train {
+                // If we already have a train specified at the moment, then options has already been evaluated for the
+                // current train, so save the current result.
+                result[train] = options
+                trains.removeAll { $0 == train }
+            }
+
+            for train in trains {
+                result[train] = try? config?.eval(train: train, channel: channel).options
             }
 
             return result
-        }()
+        }
+
+        mutating func show(
+            releases: [Release],
+            format: ReleaseFormat,
+            includeCommitHashes: Bool,
+            includeProjectIds: Bool
+        ) throws -> StringOrData {
+            var encodedValue = releases
+
+            if !includeCommitHashes || !includeProjectIds {
+                encodedValue = encodedValue.map {
+                    $0.redacting(commitHashes: !includeCommitHashes, projectIds: !includeProjectIds)
+                }
+            }
+
+            let result: StringOrData
+
+            switch format {
+            case .json:
+                let encoder = JSONEncoder()
+                result = try .init(encoder.encode(encodedValue))
+            case .yaml:
+                let encoder = YAMLEncoder()
+                result = try .init(encoder.encode(encodedValue))
+            case .plist:
+                let encoder = PropertyListEncoder()
+                result = try .init(encoder.encode(encodedValue))
+            case .version:
+                let versions = encodedValue.map(\.versionString).joined(separator: ",")
+                result = .init(versions)
+            case .text:
+                let description = encodedValue.compactMap { $0.describe(options: options) }.joined(separator: "\n")
+                result = .init(description)
+            }
+
+            return result
+        }
     }
 }
 
@@ -56,67 +159,11 @@ enum LHCError: Error, CustomStringConvertible {
     }
 }
 
-/// Values based on configuration variables.
-extension LHC {
-    static var isCI: Bool {
-        GitlabEnvironment.CI.value == "true"
-    }
-
-    static var isManualJob: Bool {
-        GitlabEnvironment.isManualJob.value == "true"
-    }
-
-    static var jobURL: URL? {
-        guard let value = GitlabEnvironment.jobURL.value else {
-            return nil
+extension URL {
+    public static func createFromPathOrThrow(_ path: String) throws -> Self {
+        guard let url = Self(string: path) else {
+            throw LHCError.invalidPath(path)
         }
-        return URL(string: value)
-    }
-
-    static var srcRoot: String? {
-        XcodeEnvironment.srcRoot.value
-    }
-
-    static var configFilePath: String? {
-        LHCEnvironment.configFilePath.value
-    }
-
-    static var branchName: String? {
-        GitlabEnvironment.mergeRequestSourceBranch.value ??
-            GitlabEnvironment.commitBranch.value
-    }
-
-    static var tagName: String? {
-        GitlabEnvironment.commitTag.value
-    }
-
-    static var editor: String {
-        guard let result = UNIXEnvironment.editor.value else {
-            fatalError("No editor set in environment")
-        }
-        return result
-    }
-}
-
-extension LHC {
-    static var spawnProcessAndWaitForTermination: ((URL, [String]) throws -> ()) = { url, arguments in
-        let task = Process()
-        task.executableURL = url
-        task.arguments = arguments
-        task.environment = LHC.processInfo.environment
-
-        task.standardInput = FileHandle(forReadingAtPath: "/dev/tty")
-        task.standardError = FileHandle(forWritingAtPath: "/dev/tty")
-        task.standardOutput = FileHandle(forWritingAtPath: "/dev/tty")
-
-        try task.run()
-        // Note: this is pure wizardry but is absolutely key to making spawn work properly
-        tcsetpgrp(STDIN_FILENO, task.processIdentifier)
-
-        task.waitUntilExit()
-    }
-
-    static func spawnAndWait(executableURL: URL, arguments: [String]) throws {
-        try spawnProcessAndWaitForTermination(executableURL, arguments)
+        return url
     }
 }

@@ -9,27 +9,17 @@ import Foundation
 import SwiftGit2
 import ArgumentParser
 import Version
+import LHC
+import LHCInternal
 
 struct CreateRelease: AsyncParsableCommand, QuietCommand {
     static let configuration = CommandConfiguration(
+        commandName: "release",
         abstract: "Tag a release at HEAD, deriving a version according to the passed options if no version is specified."
     )
 
     @OptionGroup()
     var parent: LHC.Options
-
-    @Option(
-        name: .shortAndLong,
-        help: "The release train to use, if any are configured in the project.",
-        transform: Configuration.train(named:)
-    )
-    var train: Configuration.Train? = .environment
-
-    @Option(
-        name: .shortAndLong,
-        help: "Which release channel to tag for. Possible values are \(ReleaseChannel.possibleValues)."
-    )
-    var channel: ReleaseChannel = .production
 
     @Option(
         name: .shortAndLong,
@@ -50,7 +40,7 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
         help: "The ssh identity to use when pushing."
     )
     var identity: String = {
-        let home = LHC.fileManager.homeDirectoryForCurrentUser
+        let home = Internal.fileManager.homeDirectoryForCurrentUser
             .appending(path: ".ssh", directoryHint: .isDirectory)
             .appending(path: "id_rsa", directoryHint: .notDirectory)
         return home.path()
@@ -83,18 +73,22 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
     )
     var jira: Bool = true
 
-    @Argument(transform: { (versionString: String) throws -> Version in
-        guard let version = Version(versionString) else {
-            throw CreateReleaseError.invalidVersion(versionString)
+    @Argument(
+        transform: { (versionString: String) throws -> Version in
+            guard let version = Version(versionString) else {
+                throw CreateReleaseError.invalidVersion(versionString)
+            }
+
+            return version
         }
+    )
+    var forcedVersion: Version? = nil
 
-        return version
-    })
-    var forcedVersion: Version? = .environment
+    mutating func validate() throws {
+        let forcedVersion = forcedVersion ?? parent.forcedVersion
 
-    func validate() throws {
-        guard !prereleaseIdentifiers.contains(channel.rawValue) else {
-            throw CreateReleaseError.optionAlreadySpecifies(channel)
+        guard !prereleaseIdentifiers.contains(parent.channel.rawValue) else {
+            throw CreateReleaseError.optionAlreadySpecifies(parent.channel)
         }
 
         if let forcedVersion {
@@ -131,8 +125,8 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
         )
     }
 
-    func createTag(in repo: inout Repositoryish, for release: Release) throws {
-        let tagName = (train?.tagPrefix ?? "") + release.versionString
+    mutating func createTag(in repo: inout Repositoryish, for release: Release) throws {
+        let tagName = (parent.options?.tagPrefix ?? "") + release.versionString
         let branch = try repo.currentBranch() ?? repo.HEAD()
         let signature = try repo.defaultSignature
 
@@ -140,8 +134,8 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
         let commit = try repo.commit(branch.oid)
 
         var message = "release: "
-        if let train {
-            message += "\(train.displayName ?? train.name) "
+        if let train = parent.options?.train {
+            message += "\(parent.options?.trainDisplayName ?? train) "
         }
         message += release.versionString
 
@@ -178,10 +172,10 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
         }
     }
 
-    func editNotes(for release: Release) async throws -> String? {
+    mutating func editNotes(for release: Release) async throws -> String? {
         guard jira,
-           let fieldName = Configuration.configuration.jiraReleaseNotesField,
-           let jiraClient = LHC.jiraClient,
+           let fieldName = parent.options?.jiraReleaseNotesField,
+           let jiraClient = Internal.jiraClient,
             case let projectIds = release.changes.values.flatMap({ $0.flatMap(\.projectIds) }),
               !projectIds.isEmpty else {
             return nil
@@ -195,9 +189,9 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
         }.joined(separator: "\n")
 
         if !quiet {
-            LHC.print("Release notes:", releaseNotes, separator: "\n")
-            if LHC.promptForConfirmation("Edit?", continueText: false, defaultAction: false) {
-                releaseNotes = try LHC.fileManager.editFile(
+            Internal.print("Release notes:", releaseNotes, separator: "\n")
+            if Internal.promptForConfirmation("Edit?", continueText: false, defaultAction: false) {
+                releaseNotes = try Internal.fileManager.editFile(
                     releaseNotes,
                     temporaryFileName: "release_notes.txt"
                 ) ?? ""
@@ -207,18 +201,19 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
     }
 
     mutating func run() async throws {
-        SwiftGit2.initialize()
+        Internal.initialize()
+        let forcedVersion = forcedVersion ?? parent.forcedVersion
 
         if buildTimestamp {
-            buildIdentifiers.insert(LHC.timestamp(), at: 0)
+            buildIdentifiers.insert(Internal.timestamp(), at: 0)
         }
 
-        var repo = try LHC.openRepo(at: parent.repo)
+        var repo = try Internal.openRepo(at: parent.repo)
         guard var release = try repo.latestRelease(
-            for: train,
             allowDirty: true,
-            untaggedReleaseChannel: channel,
-            forceLatestVersionTo: forcedVersion
+            untaggedReleaseChannel: parent.channel,
+            forceLatestVersionTo: forcedVersion,
+            options: parent.options
         )?.adding(
             prereleaseIdentifiers: prereleaseIdentifiers,
             buildIdentifiers: buildIdentifiers

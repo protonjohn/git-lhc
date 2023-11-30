@@ -6,7 +6,7 @@
 //
 
 import Foundation
-@testable import git_lhc
+import LHCInternal
 
 struct MockProcessInfo: ProcessInfoish {
     let environment: [String : String]

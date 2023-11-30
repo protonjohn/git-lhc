@@ -24,14 +24,6 @@ extension OID {
     }
 }
 
-extension Data {
-    static let configFile: Self = {
-        (try? YAMLEncoder()
-            .encode(Configuration.default))!
-            .data(using: .utf8)!
-    }()
-}
-
 extension TimeInterval {
     static func minutes(_ minutes: Int) -> Self {
         Self(minutes) * 60

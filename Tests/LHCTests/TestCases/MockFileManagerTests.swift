@@ -19,7 +19,7 @@ class MockFileManagerTests: XCTestCase {
      * /Users/test
      * /Users/test/repo
      * /Users/test/repo/.git (empty directory)
-     * /Users/test/repo/.gluon
+     * /Users/test/repo/.lhcconfig
      * /Users/test/repo/file (empty)
      */
 
@@ -50,7 +50,7 @@ class MockFileManagerTests: XCTestCase {
 
     func testContents() {
         XCTAssertNil(fileManager.contents(atPath: "/Users/test/repo/file"))
-        XCTAssertNotNil(fileManager.contents(atPath: "/Users/test/repo/.gluon.yml"))
+        XCTAssertNotNil(fileManager.contents(atPath: "/Users/test/repo/.lhcconfig"))
     }
 
     func testCreateAndRemove() throws {

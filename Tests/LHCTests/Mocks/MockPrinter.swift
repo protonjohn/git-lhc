@@ -6,7 +6,7 @@
 //
 
 import Foundation
-@testable import git_lhc
+import LHCInternal
 
 struct MockPrinter: Printer {
     mutating func print(_ item: String, error: Bool) {

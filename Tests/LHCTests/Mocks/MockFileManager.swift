@@ -6,6 +6,8 @@
 //
 
 import Foundation
+import LHC
+import LHCInternal
 @testable import git_lhc
 
 struct MockFileManager: FileManagerish {
@@ -171,7 +173,7 @@ struct MockFileManager: FileManagerish {
                         .directory(name: "repo", contents: [
                             .directory(name: ".git", contents: []),
                             .file(name: "file", contents: nil),
-                            .file(name: ".gluon.yml", contents: .configFile)
+                            .file(name: ".lhcconfig", contents: Configuration.exampleContents)
                         ])
                     ])
                 ]),

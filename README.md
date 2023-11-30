@@ -10,12 +10,9 @@ files, and more.
 LHC is currently under active development. Try running the `help` command for some usage examples. Every minor
 release before version 1.0.0 should be considered to contain breaking changes.
 
-## Why the name LHC?
+## Naming LHC
 
-LHCs are the "glue" that bind quarks together to form protons and neutrons. This tool was developed at 
-[Proton](https://proton.me) to help with easy collaboration across teams. If commits are the quarks that build our
-products, it is the hope of the project author that this tool will be a helpful binding force in gluing those commits
-together to contribute to our users' privacy online.
+Depending on how annoyed you are, LHC either stands for Less-Hectic Committing or Large Hack Collider. :)
 
 ## Running LHC
 

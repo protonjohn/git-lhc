@@ -1,0 +1,1485 @@
+# LHC Fastlane configuration.
+# Fastlane documentation is available at https://docs.fastlane.tools
+# vi: ft=ruby
+#
+# For complete documentation please run `fastlane docs' and consult the generated README.
+
+require 'json' # for parsing release descriptions and the build configuration
+require 'securerandom' # for generating UUIDs
+
+# Buildit configuration variables
+# The arguments to buildit, saved in the global lane context.
+SharedValues::BUILDIT_ARGS = :BUILDIT_ARGS
+# The configuration that gets evaluated according to the given arguments, saved in the global lane context.
+SharedValues::BUILDIT_CONFIG = :BUILDIT_CONFIG
+# The path the dmg file created by dmgbuild.
+SharedValues::DMGBUILD_OUTPUT_PATH = :DMGBUILD_OUTPUT_PATH
+
+# The path to the match dictionary that gets evaluated according to buildit's arguments.
+$buildit_config_file = ENV["BUILDIT_CONFIG"] || ".buildit"
+
+# Fastlane puts us in $repo_path/fastlane, so we need a path to the repository itself.
+$repo_path = File.expand_path("#{Dir.pwd}/..")
+
+# Gets set whenever a lane has created a keychain. Used for deleting it afterwards.
+$created_keychain = false
+# Gets set whenever a lane has created a simulator. Used for stopping it afterwards.
+$created_simulator = false
+
+# This is the only CI variable that is explicitly referenced by this file. Clients should reference any other CI
+# variables they need inside their build configuration.
+$ci = ENV["CI"]
+
+# Prevents timeouts during builds. More info: https://github.com/fastlane/fastlane/issues/10131
+ENV["FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT"] = "180"
+ENV["FASTLANE_XCODE_LIST_TIMEOUT"] = "180"
+
+### MINT PACKAGE MANAGER
+$mintfile = "#{$repo_path}/Mintfile"
+def mint_bootstrap()
+    unless File.exist?($mintfile)
+        puts "No Mintfile found, creating one for you..."
+        File.open($mintfile, "w") { |f| 
+            f.write <<~MINTFILE
+            twittemb/XcodeCoverageConverter
+            a7ex/xcresultparser
+            protonjohn/git-lhc
+            MINTFILE
+        }
+    end
+
+    puts `mint bootstrap -m "#{$mintfile}"`
+    unless $?.success?
+        die "Unable to bootstrap dependencies."
+    end
+end
+
+### BUILD, TRAIN, AND RELEASE CHANNEL OPTIONS
+
+def die(string)
+    puts string
+    UI.user_error!(string)
+end
+
+def puts_debug(options, string)
+    unless not options[:debug_eval_config]
+        puts string
+    end
+end
+
+# Argument contexts and name mappings.
+# Note: when adding a new mapping to this dictionary, make sure you also add it to the argument documentation.
+$arg_contexts = {
+  :build_app => {
+    :include => [
+      :analyze_build_time,
+      :archive_path,
+      :build_path,
+      :configuration,
+      :derived_data_path,
+      :destination,
+      :disable_package_automatic_updates,
+      :export_method,
+      :export_options,
+      :export_xcargs,
+      :include_bitcode,
+      :output_directory,
+      :scheme,
+      :sdk,
+      :skip_archive,
+      :skip_build_archive,
+      :skip_codesigning,
+      :skip_package_dependencies_resolution,
+      :skip_profile_detection,
+      :suppress_xcode_output,
+      :use_system_scm,
+      :xcargs,
+      :xcconfig,
+      :xcodebuild_command,
+      :xcpretty_formatter,
+      :xcpretty_report_html,
+      :xcpretty_report_json,
+      :xcpretty_report_junit,
+      :xcpretty_test_format,
+    ],
+    :map => {
+      :build_clean => :clean,
+      :buildlog_dir => :buildlog_path,
+      :swift_package_cache_path => :cloned_source_packages_path,
+      :team_id => :export_team_id,
+      :xcodeproj => :project,
+      :xcworkspace => :workspace,
+    }
+  },
+  :run_tests => {
+    :include => [
+      :build_for_testing,
+      :derived_data_path,
+      :destination,
+      :devices,
+      :disable_package_automatic_updates,
+      :export_method,
+      :export_options,
+      :fail_build,
+      :number_of_retries,
+      :output_directory,
+      :output_xctestrun,
+      :result_bundle,
+      :result_bundle_path,
+      :run_rosetta_simulator,
+      :scheme,
+      :should_zip_build_products,
+      :skip_package_dependencies_resolution,
+      :skip_slack,
+      :slack_channel,
+      :slack_default_payloads,
+      :slack_icon_url,
+      :slack_message,
+      :slack_only_on_failure,
+      :slack_url,
+      :slack_username,
+      :test_without_building,
+      :testplan,
+      :use_system_scm,
+      :xcargs,
+      :xcconfig,
+    ],
+    :map => {
+      :build_clean => :clean,
+      :buildlog_dir => :buildlog_path,
+      :swift_package_cache_path => :cloned_source_packages_path,
+      :test_report_format => :output_types,
+      # :xcodeproj => :project, This breaks things when used with testplan. Maybe don't use for now
+      :xcworkspace => :workspace,
+    }
+  },
+  :slack => {
+    :map => {
+      :slack_channel => :channel,
+      :slack_default_payloads => :default_payloads,
+      :slack_fail_on_error => :fail_on_error,
+      :slack_icon_url => :icon_url,
+      :slack_link_channels_and_usernames => :link_names,
+      :slack_message => :message,
+      :slack_pretext => :pretext,
+      :slack_success => :success,
+      :slack_username => :username,
+    },
+  },
+  :deliver => {
+    :include => [
+      :app_identifier,
+      :app_review_attachment_file,
+      :automatic_release,
+      :build_number,
+      :phased_release,
+      :reset_ratings,
+      :username,
+    ],
+    :map => {
+      :deliver_force => :force,
+      :deliver_ipa_path => :ipa,
+      :deliver_metadata_path => :metadata_path,
+      :deliver_pkg_path => :pkg,
+      :deliver_price_tier => :price_tier,
+      :deliver_screenshots_path => :screenshots_path,
+      :deliver_skip_binary_upload => :skip_binary_upload,
+      :deliver_skip_screenshots => :skip_screenshots,
+      :deliver_submission_information => :submission_information,
+    }
+  },
+  :match => {
+    :include => [
+      :platform,
+      :team_id,
+      :username,
+    ],
+    :map => {
+      :match_git_branch => :git_branch,
+      :match_git_url => :git_url,
+      :match_keychain_name => :keychain_name,
+      :match_readonly => :readonly,
+      :match_type => :type,
+    }
+  },
+  :upload_to_testflight => {
+    :include => [
+      :app_identifier,
+      :changelog,
+      :team_name,
+    ],
+    :map => {
+      :testflight_distribute_external => :distribute_external,
+      :testflight_groups => :groups,
+    }
+  },
+  :nexus_upload => {
+    :map => {
+      :nexus_group_id => :repo_group_id,
+      :nexus_id => :repo_id,
+      :nexus_project_name => :repo_project_name,
+      :nexus_project_version => :repo_project_version,
+    }
+  },
+  :notarize => {
+    :include => [
+      :asc_provider,
+      :skip_stapling,
+      :try_early_stapling,
+      :use_notarytool,
+      :username,
+    ],
+    :map => {
+      :app_identifier => :bundle_id,
+      :notarization_package => :package,
+      :notarization_verbose => :verbose,
+      :print_notarization_log => :print_log,
+    },
+  },
+  :sentry_upload_dif => {
+    :map => {
+      # this is kept separate from :derived_data_path on purpose, in case users want to use the options separately.
+      :sentry_derived_data_path => :derived_data, 
+      :sentry_dif_ids => :ids,
+      :sentry_dif_no_debug => :no_debug,
+      :sentry_dif_no_reprocessing => :no_reprocessing,
+      :sentry_dif_no_sources => :no_sources,
+      :sentry_dif_no_unwind => :no_unwind,
+      :sentry_dif_no_zips => :no_zips,
+      :sentry_dif_path => :path,
+      :sentry_dif_require_all_ids => :require_all,
+      :sentry_dif_symbol_maps => :upload_symbol_maps,
+      :sentry_dif_type => :type,
+      :sentry_force_foreground => :force_foreground,
+      :sentry_include_sources => :include_sources,
+      :sentry_info_plist => :info_plist,
+      :sentry_org_slug => :org_slug,
+      :sentry_project_slug => :project_slug,
+      :sentry_symbol_maps => :symbol_maps,
+      :sentry_wait => :wait,
+    }
+  },
+  :sentry_create_release => {
+    :include => [
+      :app_identifier,
+    ],
+    :map => {
+      :build_number => :version,
+      :sentry_org_slug => :org_slug,
+      :sentry_project_slug => :project_slug,
+    }
+  },
+  # note: sentry_set_commits can cause errors if no commit has been added to the project in sentry before.
+  :sentry_set_commits => {
+    :include => [
+      :app_identifier,
+    ],
+    :maps => {
+      :build_number => :version,
+      :sentry_commit_head => :commit,
+      :sentry_commits_auto => :auto,
+      :sentry_commits_clear => :clear,
+    }
+  },
+}
+
+# This is used for generating the documentation for the shared lanes. When adding to the argument mappings above, make sure that y
+$arg_docs = {
+  # Documentation for each of the argument contexts listed above. This documentation is included in the docc bundle,
+  # and each context has the `Note` header above it. So these should start with 'Used for' or something similarly appropriate.
+  :contexts => {
+    :build_app => "Used for building and signing applications in Xcode projects and workspaces.",
+    :deliver => "Used for uploading screenshots, metadata, and binaries to App Store Connect, as well as submitting apps to review.",
+    :match => "Used for code signing and certificate management.",
+    :nexus_upload => "Used for distributing binaries with Nexus, and for updating the Sparkle appcast file.",
+    :notarize => "Used for notarizing macOS applications.",
+    :run_tests => "Used for building and running test targets and testplans.",
+    :sentry_create_release => "Used for creating a release in the Sentry web interface.",
+    :sentry_set_commits => "Used for setting commits associated with a release in Sentry.",
+    :sentry_upload_dif => "Used for uploading debugging information to Sentry.",
+    :slack => "Used for sending updates to slack channels.",
+    :upload_to_testflight => "Used for uploading a binary to testflight, including the latest changelog information.",
+  },
+  # Documentation for each of the arguments listed above. Many of these are taken from Fastlane's official documentation.
+  # Arguments which have been mapped are listed under their alias names, e.g., build_clean instead of clean.
+  :arguments => {
+    :analyze_build_time => "Analyze the project build time and store the output in 'culprits.txt' file",
+    :app_identifier => "The bundle identifier representing the main app bundle.",
+    :app_review_attachment_file => "Metadata: Path to the app review attachment file",
+    :archive_path => "The path to the created archive",
+    :asc_provider => "Provider short name for accounts associated with multiple providers.",
+    :automatic_release => "Should the app be automatically released once it's approved? (Can not be used together with auto_release_date)",
+    :build_clean => "Should the project be cleaned before building it?",
+    :build_for_testing=> "Build for testing only, does not run tests.",
+    :build_number => "The equivalent of CFBundleVersion. Value is derived from git history by default.",
+    :build_path => "The directory in which the archive should be stored in",
+    :buildlog_dir => "The directory to store the build log in. Gets copied to output_directory by default.",
+    :changelog => "The changelog to use. Derived from tags by default.",
+    :configuration => "The configuration to use when building the app.",
+    :deliver_force => "Skip verification of the HTML preview file.",
+    :deliver_ipa_path => "Path to your IPA file.",
+    :deliver_metadata_path => "Path to the folder containing the deliver metadata files.",
+    :deliver_pkg_path => "Path to your PKG file.",
+    :deliver_price_tier => "The price tier of this application.",
+    :deliver_screenshots_path => "Path to the folder containing the deliver screenshot files.",
+    :deliver_skip_binary_upload => "Skip uploading an ipa or pkg to App Store Connect.",
+    :deliver_skip_screenshots => "Don't upload app screenshots.",
+    :deliver_submission_information => "Extra information for the submission (e.g. compliance specifications, IDFA settings)",
+    :destination => "Use a custom destination for building the app.",
+    :devices  => "Array of devices to run the tests on (e.g. ['iPhone 6', 'iPad Air', 'iPhone SE (2nd generation) (14.5)']).",
+    :disable_package_automatic_updates => "Prevents packages from automatically being resolved to versions other than those recorded in the Package.resolved file.",
+    :export_method => "Method used to export the archive. Valid values are: app-store, validation, ad-hoc, package, enterprise, development, developer-id and mac-application.",
+    :export_options => "Path to an export options plist or a hash with export options. Use 'xcodebuild -help' to print the full set of available options.",
+    :export_xcargs => "Pass additional arguments to xcodebuild for the package phase. Be sure to quote the setting names and values.",
+    :fail_build=> "Should this step stop the build if the tests fail? Set this to false if you're using trainer",
+    :include_bitcode => "Should the ipa file include bitcode?",
+    :match_git_branch => "Specific git branch to use.",
+    :match_git_url => "URL to the git repo containing all the certificates",
+    :match_keychain_name => "Keychain the items should be imported to.",
+    :match_readonly => "Only fetch existing certificates and profiles, don't generate new ones.",
+    :match_type => "Define the match profile type, can be appstore, adhoc, development, enterprise, developer_id, mac_installer_distribution, developer_id_installer",
+    :nexus_group_id => "Nexus repository group id e.g. com.company",
+    :nexus_id => "Nexus repository id, e.g. artifacts",
+    :nexus_project_name => "Nexus repository commandect name. Only letters, digits, underscores(_), hyphens(-), and dots(.) are allowed.",
+    :nexus_project_version => "Nexus repository commandect version",
+    :notarization_package => "Path to package to notarize, e.g. .app bundle or disk image",
+    :notarization_verbose => "Whether to log requests",
+    :number_of_retries=> "The number of times a test can fail",
+    :output_directory => "The directory in which the ipa file should be stored in.",
+    :output_xctestrun => "Should provide additional copy of .xctestrun file (settings.xctestrun) and place in output path?",
+    :phased_release => "Enable the phased release feature of App Store Connect.",
+    :platform => "Which platform we're building for - ios, macos, tvos, etc.",
+    :print_notarization_log => "Whether to print notarization log file, listing issues on failure and warnings on success.",
+    :reset_ratings => "Reset the summary rating when you release a new version of the application",
+    :result_bundle => "Should an Xcode result bundle be generated in the output directory",
+    :result_bundle_path => "Custom path for the result bundle, overrides result_bundle.",
+    :run_rosetta_simulator => "Adds arch=x86_64 to the xcodebuild 'destination' argument to run simulator in a Rosetta mode",
+    :scheme => "The project's scheme. Make sure it's marked as Shared.",
+    :sdk => "The SDK that should be used for building the application.",
+    :sentry_commit_head => "Commit spec, see `sentry-cli releases help set-commits` for more information",
+    :sentry_commits_auto => "Enable completely automated release/commit association in Sentry.",
+    :sentry_commits_clear => "Clear all current commits from the release.",
+    :sentry_derived_data_path => "Search for debug symbols in Xcode's derived data. Set this equal to `derived_data_path` if you want this enabled.",
+    :sentry_dif_ids => "Search for specific debug identifiers.",
+    :sentry_dif_no_debug => "Do not scan for debugging information. This will usually exclude debug companion files. They might still be uploaded, if they contain additional processable information (see other flags).",
+    :sentry_dif_no_reprocessing => "Do not trigger reprocessing after uploading.",
+    :sentry_dif_no_sources => "Do not scan for source information. This will usually exclude source bundle files. They might still be uploaded, if they contain additional processable information (see other flags)",
+    :sentry_dif_no_unwind => "Do not scan for stack unwinding information. Specify this flag for builds with disabled FPO, or when stackwalking occurs on the device. This usually excludes executables and dynamic libraries. They might still be uploaded, if they contain additional processable information (see other flags).",
+    :sentry_dif_no_zips => "Do not search in ZIP files.",
+    :sentry_dif_path => "The path to the debugging information (usually a dSYM).",
+    :sentry_dif_require_all_ids => "Errors if not all identifiers specified with `sentry_dif_ids` could be found.",
+    :sentry_dif_symbol_maps => "Upload any BCSymbolMap files found to allow Sentry to resolve hidden symbols, e.g. when it downloads dSYMs directly from App Store Connect or when you upload dSYMs without first resolving the hidden symbols using --symbol-maps.",
+    :sentry_dif_type => "Only consider debug information files of the given type. By default, all types are considered. Valid options: 'dsym', 'elf', 'breakpad', 'pdb', 'pe', 'sourcebundle', 'bcsymbolmap'.",
+    :sentry_force_foreground => "Wait for the process to finish. By default, the upload process will detach and continue in the background when triggered from Xcode. When an error happens, a dialog is shown. If this parameter is passed Xcode will wait for the process to finish before the build finishes and output will be shown in the Xcode build output.",
+    :sentry_include_sources => " Include sources from the local file system and upload them as source bundles.",
+    :sentry_info_plist => "Optional path to the Info.plist. We will try to find this automatically if run from Xcode. Providing this information will associate the debug symbols with a specific ITC application and build in Sentry. Note that if you provide the plist explicitly it must already be processed.",
+    :sentry_org_slug => "The sentry slug for your org.",
+    :sentry_project_slug => "The sentry slug for your project.",
+    :sentry_symbol_maps => "Optional path to BCSymbolMap files which are used to resolve hidden symbols in dSYM files downloaded from App Store Connect. This requires the dsymutil tool to be available.",
+    :sentry_wait => "Wait for the server to fully process uploaded files. Errors can only be displayed if --wait is specified, but this will significantly slow down the upload process.",
+    :should_zip_build_products => "Should zip the derived data build products and place in output path?",
+    :skip_archive => "After building, don't archive, effectively not including -archivePath param.",
+    :skip_build_archive => "Export ipa from previously built xcarchive. Uses archive_path as source.",
+    :skip_codesigning => "Build without codesigning.",
+    :skip_package_dependencies_resolution => "Skips resolution of Swift Package Manager dependencies.",
+    :skip_profile_detection => "Do not try to build a profile mapping from the xcodeproj. Match or a manually provided mapping should be used",
+    :skip_slack => "Don't publish to slack, even when an URL is given",
+    :skip_stapling => "Do not staple the notarization ticket to the artifact; useful for single file executables and ZIP archives",
+    :slack_channel => "#channel or @username.",
+    :slack_default_payloads => "Specifies default payloads to include in Slack messages. For more info visit [slack docs](https://docs.fastlane.tools/actions/slack).",
+    :slack_icon_url => "Overrides the webhook's image property if `slack_use_webhook_configured_username_and_icon` is not set.",
+    :slack_message => "The message included with each message posted to slack.",
+    :slack_only_on_failure => "Only post on Slack if the tests fail",
+    :slack_username => "Overrides the webhook's username property if slack_use_webhook_configured_username_and_icon is set",
+    :suppress_xcode_output => "Suppress the output of xcodebuild to stdout. Output is still saved in buildlog_path.",
+    :swift_package_cache_path => "Where swift package checkouts are kept by default.",
+    :team_id => "The team ID to use when codesigning.",
+    :team_name => "The name of the team associated with your Team ID.",
+    :test_report_format => "The report format(s) to use when running tests.",
+    :test_without_building => "Test without building, requires a derived data path.",
+    :testflight_distribute_external => "Should the build be distributed to external testers? If set to true, use of `groups` option is required.",
+    :testplan => "The testplan associated with the scheme that should be used for testing.",
+    :use_notarytool => "Whether to `xcrun notarytool` or `xcrun altool`.",
+    :use_system_scm => "Lets xcodebuild use system's scm configuration",
+    :username => "The App Store Connect username to use (not required when using an API key)",
+    :version_number => "The equivalent of CFBundleShortVersionString. Value is a shortened version of the build number by default.",
+    :xcargs => "Pass additional arguments to xcodebuild for the build phase. Be sure to quote the setting names and values.",
+    :xcconfig => "Use an extra xcconfig file to build your app.",
+    :xcodebuild_command => "Allows for override of the default xcodebuild command.",
+    :xcodeproj => "The path to the Xcode project.",
+    :xcpretty_formatter => "A custom xcpretty formatter to use.",
+    :xcpretty_report_html => "Have xcpretty create a simple HTML report at the provided path.",
+    :xcpretty_report_json => "Have xcpretty create a JSON compilation database at the provided path.",
+    :xcpretty_report_junit => "Have xcpretty create a JUnit-style XML report at the provided path.",
+    :xcpretty_test_format => "Use the test (RSpec style) format for build output.",
+    :xcworkspace => "Path to the workspace file.",
+  },
+  # Arguments which don't necessarily apply to any of the contexts listed above, but are used globally, for instance,
+  # to determine the value of other arguments or provide default values.
+  :global_arguments => {
+    :build_commit_cache => "An optional path to a build cache location indexed by commit hash.",
+    :build_commit_cache_ttl => "How long each commit should stay indexed in the cache directory.",
+    :channel => "The release channel to invoke the lane for, for instance, alpha, beta, or production.",
+    :code_coverage => "Force enablement of code coverage reporting.",
+    :testplans_dir => "A directory for where to find test plans mentioned by name.",
+    :train => "The build train to invoke the lane for.",
+  },
+  # Environment variables which are used to store any secrets which we'd rather not commit to a repository
+  # or leave hanging around in build configurations.
+  :env_vars => {
+    :AL_NEXUS_PASSWORD => "The password used for uploading artifacts to Nexus.",
+    :APPSTORE_API_KEY => "The API key used to interface with App Store Connect.",
+    :APPSTORE_API_KEY_ID => "The ID for the app store API key used to interface with App Store Connect.",
+    :APPSTORE_API_KEY_ISSUER => "The issuer for the API key used to interface with App Store Connect.",
+    :JIRA_API_TOKEN => "The API token used for interfacing with Jira.",
+    :MATCH_GIT_URL => "The git repository containing the signing certificates.",
+    :MATCH_KEYCHAIN_PASSWORD => "The password to the keychain containing signing certificates.",
+    :MATCH_PASSWORD => "The password to the match storage container.",
+    :SENTRY_API_KEY => "The API key used for interfacing with sentry. Do not use with `SENTRY_AUTH_TOKEN`.",
+    :SENTRY_AUTH_TOKEN => "The auth token used for interfacing with sentry. Do not use with `SENTRY_API_KEY`.",
+    :SLACK_WEBHOOK_URL => "The incoming webhook URL to use for Slack notifications.",
+  }
+}
+
+### HELPER FUNCTIONS
+
+def get_or_die(options, sym)
+    unless (value = options[sym])
+        die "Couldn't get #{sym.to_s} from options."
+    end
+
+    return value
+end
+
+def get_train_secret(train, env_var)
+    train_env_var = env_var + "_" + train.to_s.upcase
+    return ENV.fetch(train_env_var, ENV[env_var])
+end
+
+def command_exist?(name)
+    `which #{name}`
+    return $?.success?
+end
+
+def filter_args(options, argskey)
+    unless (context = $arg_contexts[argskey])
+        die "Undeclared context #{argskey}."
+    end
+
+    context_key = "context_" + argskey.to_s
+
+    result = options.fetch(context_key.to_sym, {})
+    context.each do |action, values|
+        case action
+        when :include
+            values.each do |key|
+                next unless (value = options[key])
+                result[key] = value
+            end
+        when :exclude
+            result.merge!(options.except(values)) do |key, old, new|
+                old
+            end
+        when :map
+            values.each do |key, renamedKey|
+                next unless (value = options[key])
+                result[renamedKey] = value
+            end
+        end
+    end
+    return result
+end
+
+def context_docs(context)
+    context_args = $arg_contexts.fetch(context, {})
+
+    arg_names = context_args.fetch(:include, [])
+    arg_names += context_args.fetch(:map, {}).keys
+
+    table = <<~DOC
+    ### #{context.to_s}
+
+    > #{$arg_docs[:contexts][context]}
+
+    | Argument name | Description |
+    |---------------|-------------|
+    DOC
+
+    arg_names.each do |name|
+        next unless (description = $arg_docs[:arguments].fetch(name, nil))
+        table += "| `#{name}` | #{description} |\n"
+    end
+
+    table += "\n"
+
+    return table
+end
+
+def global_arg_docs(lane, arg_names)
+    table = <<~DOC
+    `#{lane.to_s}` accepts these values as arguments:
+
+    | Argument name | Description |
+    |---------------|-------------|
+    DOC
+
+    arg_names.each do |name|
+        next unless (description = $arg_docs[:global_arguments].fetch(name, nil))
+        table += "| `#{name}` | #{description} |\n"
+    end
+
+    table += "\n\n"
+
+    return table
+end
+
+def env_var_docs(lane, env_vars)
+    table = doc = <<~DOC
+    `#{lane.to_s}` accepts several values as environment variables. `#{lane.to_s}` only uses environment variables
+    for storing secrets, all other build settings should use your build configuration file.
+
+    > Warning: Do not store *any* secrets in your build configuration file, or reference any environment variables
+    > in your project that may contain a secret. Build configurations are evaluated and printed to pipeline output
+    > for debugging, so any environment variables mentioned inside can be expanded and printed to the job log.
+
+    If a train is defined, then buildit will first look for the environment variable by appending `_<TRAIN>` to
+    the variable name, where `<TRAIN>` is the name of the build train in all caps, substituting hyphens for underscores.
+    If a value isn't found, then buildit will fall back to the value found for the generic environment variable name.
+    So, for example, the `vpn-ios` train can have its match password stored in `MATCH_PASSWORD_VPN_IOS` or `MATCH_PASSWORD`.
+
+    | Variable name | Description |
+    |---------------|-------------|
+    DOC
+
+    env_vars.each do |env_var|
+        next unless (description = $arg_docs[:env_vars].fetch(env_var, nil))
+        table += "| `#{env_var}` | #{description} |\n"
+    end
+
+    table += "\n\n"
+
+    return table
+end
+
+def doc_lane(options)
+    name = options[:name]
+    summary = options[:summary].each_line.map(&:strip).join("\n")
+    examples = options[:examples].each_line.map(&:strip).join("\n")
+    arguments = options[:arguments]
+    contexts = options[:contexts]
+    env_vars = options[:env_vars]
+
+    docs = <<~DOC
+    #{summary}
+
+    **Examples:**
+    ```bash
+    #{examples}
+    ```
+
+    #{global_arg_docs(name, arguments)}
+
+    #{env_var_docs(name, env_vars)}
+
+    In addition, `#{name.to_s}` invokes the actions below, and accepts the below arguments for each action. If one
+    is not provided, the default will be taken from your build configuration. Values may or may not be required
+    depending on the context, for more information view the official fastlane documentation for how each action should
+    be used and whether your configuration should provide a default value.
+
+    DOC
+
+    contexts.each do |context|
+        docs += context_docs(context)
+    end
+
+    desc docs
+    lane(name) do |arguments|
+        yield(arguments)
+    end
+end
+
+# Delete build folders older than the configured time interval.
+def cleanup_build_commit_cache(options)
+    build_commit_cache = get_or_die(options, :build_commit_cache_path)
+
+    if not File.directory?(build_commit_cache)
+        puts "Build commit cache directory does not exist: #{build_commit_cache}"
+        return
+    end
+
+    unless (build_commit_cache_ttl = options[:build_commit_cache_ttl])
+        puts "Not cleaning commit cache, :build_commit_cache_ttl not defined"
+        return
+    end
+
+    cmd_find = "find #{build_commit_cache}* -type d -maxdepth 0 -ctime +#{build_commit_cache_ttl}"
+    cmd_delete = "xargs rm -rfv"
+    puts "Cleaning out derived data..."
+    puts `#{cmd_find} | #{cmd_delete}`
+end
+
+def delete_keychain_if_needed(options)
+    return unless $created_keychain
+
+    delete_keychain(name: options.fetch(:match_keychain_name, "buildit"))
+end
+
+### CERTIFICATES AND PROVISIONING
+
+# get_app_store_api_key
+def get_app_store_api_key(options)
+    key = get_train_secret(options[:train], "APPSTORE_API_KEY")
+    return nil unless key
+
+    key_id = get_train_secret(options[:train], "APPSTORE_API_KEY_ID")
+    key_issuer = get_train_secret(options[:train], "APPSTORE_API_KEY_ISSUER")
+
+    app_store_connect_api_key(
+        key_id: key_id,
+        issuer_id: key_issuer,
+        key_content: key,
+        duration: 1200,
+        in_house: false
+    )
+end
+
+def setup_codesigning(options)
+    if options[:CI]
+        get_app_store_api_key(options)
+    end
+
+    targets = get_or_die(options, :targets)
+    bundle_ids = get_or_die(options, :bundle_ids)
+
+    if targets.count != bundle_ids.count
+        die "Targets (#{targets}) and bundle ids (#{bundle_ids}) should have the same length and contain corresponding entries"
+    end
+
+    target_names = {}
+    for i in 0...targets.count
+        target_names[bundle_ids[i]] = targets[i]
+    end
+
+    # If the passed export options say to use automatic signing, don't bother with the match repository or creating
+    # the keychain, just let Xcode handle things for us.
+    if options[:use_automatic_signing]
+        update_code_signing_settings(
+            team_id: options[:team_id],
+            targets: target_names.values,
+            path: options[:xcodeproj],
+            use_automatic_signing: true,
+            build_configurations: options[:configuration],
+            profile_name: "",
+        )
+        return
+    end
+
+    match_options = filter_args(options, :match)
+    match_options[:app_identifier] = target_names.keys
+
+    # Set MATCH_PASSWORD equal to the train's match password, if it isn't set.
+    if (password = get_train_secret(options[:train], "MATCH_PASSWORD")) and password != ENV["MATCH_PASSWORD"]
+        ENV["MATCH_PASSWORD"] = password
+    end
+    unless (keychain_password = get_train_secret(options[:train], "MATCH_KEYCHAIN_PASSWORD"))
+        die "No keychain password specified in arguments - please define a value for MATCH_KEYCHAIN_PASSWORD"
+    end
+    if (git_url = get_train_secret(options[:train], "MATCH_GIT_URL")) and !match_options.key?(:git_url)
+        match_options[:git_url] = git_url
+    end
+    match_options[:keychain_password] = keychain_password
+    keychain_name = match_options.fetch(:keychain_name, "fastlane")
+
+    begin
+        puts "Creating keychain #{keychain_name}..."
+        create_keychain(
+            name: keychain_name,
+            password: keychain_password,
+            default_keychain: false,
+            add_to_search_list: true,
+            unlock: true,
+            lock_when_sleeps: true,
+            lock_after_timeout: true,
+            timeout: 1800
+        )
+        $created_keychain = true
+    rescue => error
+        die "Unable to create keychain: #{error}"    
+    end
+
+    # Download current certs and profiles from git, and/or create them on app store connect.
+    puts "Matching signing settings with targets..."
+    match(**match_options)
+
+    profiles = get_or_die(lane_context, SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING)
+
+    if not options[:export_method] and not options[:export_options] and 
+            (export_method = lane_context[SharedValues::SIGH_PROFILE_TYPE])
+        options[:export_method] = export_method
+    end
+
+    puts "Modifying code signing settings..."
+    profiles.each do |bundle_id, profile_name|
+        target = get_or_die(target_names, bundle_id)
+
+        update_code_signing_settings(
+            team_id: options[:team_id],
+            targets: [target],
+            path: options[:xcodeproj],
+            use_automatic_signing: false,
+            build_configurations: options[:configuration],
+            profile_name: profile_name
+        )
+    end
+end
+
+def set_version(options)
+    version_number = options[:version_number]
+    build_number = options[:build_number]
+
+    # If we're being invoked from the CI and a job ID is defined, include it in the build identifiers.
+    if (job_id = options[:job_id])
+        if build_number.include?("+")
+            build_number += "." + job_id
+        else
+            build_number += "+" + job_id
+        end
+    end
+
+    if (version_number = options[:version_number])
+        increment_version_number(
+          version_number: version_number,
+          xcodeproj: options[:xcodeproj]
+        )
+    end
+
+    if (build_number = options[:build_number])
+        increment_build_number(
+          build_number: build_number,
+          xcodeproj: options[:xcodeproj]
+        )
+    end
+end
+
+def version_eval(arguments)
+    result = {}
+
+    unless arguments.key?(:channel)
+        arguments[:channel] = "alpha"
+    end
+
+    puts "Describing release for #{arguments[:channel]} #{arguments[:train]} from history..."
+
+    build_description_data = `\
+      cd ../ && \
+      mint run -s -m #{$mintfile} \
+        git-lhc describe \
+        -r #{$repo_path} \
+        --format json \
+        --dry-run \
+        --channel #{arguments[:channel]} \
+        --train #{arguments[:train]}`
+
+    unless $?.success?
+        die "Unable to determine version information."
+    end
+
+    unless (releases = JSON.parse(build_description_data)) and (release = releases.first)
+        die "Build description data invalid:\n#{build_description_data}"
+    end
+
+    # Copy information from the lhc release description into the build configuration arguments.
+    map = {
+        :build_number => "version",
+        :version_number => "shortVersion",
+    }
+
+    map.each do |argument, releaseKey|
+        unless arguments.key?(argument) || !release.key?(releaseKey)
+            arguments[argument] = release[releaseKey]
+        end
+    end
+
+    # JSON gets confused and prefixes all symbols with ":", which is not what we want.
+    arguments.transform_keys!(&:to_s)
+
+    defines = ""
+    arguments.each do |argument, value|
+        # We pass train and channel explicitly further down below.
+        next if argument == "train" or argument == "channel"
+        defines += "-D #{argument}=#{valUe.to_s} "
+    end
+
+    puts "Evaluating build configuration..."
+    result = `cd ../ && \
+        mint run -s -m #{$mintfile} \
+        git-lhc config eval \
+          -i 'CI*' -i 'ATLAS*' -i 'LHC*' \
+          --channel #{arguments[:channel]} \
+          --train #{arguments[:train]} \
+          #{defines.strip} 2> /dev/stdout`
+
+    unless $?.success?
+        die "Error occurred evaluating build config: #{result}"
+    end
+
+    result = JSON.parse(result)
+
+    if (changes = release["changes"])
+        project_ids = []
+        changes.each do |category, changeList|
+            changeList.each do |changeDict|
+                next unless (change_ids = changeDict["projectIds"])
+                project_ids |= change_ids.uniq
+            end
+        end
+
+        result[:project_ids] = project_ids
+    end
+
+    if (changelog = release["changelog"]) and not arguments[:changelog]
+        result[:changelog] = changelog
+    end
+
+    # Transform keys back into symbols so that splat-arguments work again.
+    result.transform_keys!(&:to_sym)
+    if (export_options = result[:export_options])
+        export_options.transform_keys!(&:to_sym)
+    end
+
+    return result
+end
+
+def tests_in_testplan(path)
+    unless File.exist?(path) and (contents = File.read(path)) and (json = JSON.parse(contents))
+        puts "#{path} is not a valid testplan path, ignoring file."
+        return nil
+    end
+
+    unless (testTargets = json["testTargets"])
+        puts "Test plan has unrecognized format, ignoring file."
+        return nil
+    end
+
+    result = []
+    testTargets.each do |test|
+        next unless (target = test["target"])
+        next unless (name = target["name"])
+        result << name
+    end
+    return result
+end
+
+def interpret_code_coverage(options)
+    # Prepare coverage report
+    puts "Generating code coverage json..."
+    xcresult_path = get_or_die(lane_context, SharedValues::SCAN_GENERATED_XCRESULT_PATH)
+    test_output_directory = options.fetch(:output_directory, "test_output")
+    coverage_report_file = "#{test_output_directory}/coverage.json"
+    `xcrun xccov view --report --json #{xcresult_path} > #{coverage_report_file}`
+    unless $?.success?
+        die "Unable to generate code coverage report from xcresult."
+    end
+
+    exclude = ""
+    if (testplans_dir = options[:testplans_dir]) and (testplan = options[:testplan])
+        tests = tests_in_testplan("#{$repo_path}/#{testplans_dir}/#{testplan}.xctestplan")
+        if tests and not tests.empty?
+            tests.each do |test|
+                exclude += " --exclude-targets #{test}"
+            end
+        end
+    end
+
+    puts "Converting json to cobertura format..."
+    # Convert test coverage report to cobertura format for gitlab to understand
+    `mint run -m #{$mintfile} -s \
+        xcodecoverageconverter generate #{coverage_report_file} #{test_output_directory} cobertura-xml#{exclude}`
+    unless $?.success?
+        die "Unable to convert code coverage file to cobertura format."
+    end
+
+    coverage_contents = File.read(coverage_report_file)
+    coverage_data = JSON.parse(coverage_contents)
+    unless line_coverage = coverage_data["lineCoverage"]
+        die "Line coverage data not present in code coverage file."
+    end
+    puts "Total test coverage: #{(line_coverage * 100).round(2)}%"
+end
+
+# Xcode generates the name of xctestrun file by unknown rules. So we check all possible variants 
+# in order to find what we need.
+def find_xctestrun_filename(path, scheme, testplan, destination, architecture)
+    names = [
+      scheme + "_" + scheme + "_" + destination + ".xctestrun",
+      scheme + "_" + destination + ".xctestrun",
+    ]
+
+    if testplan != nil
+        full = scheme + "_" + testplan + "_" + destination + "-" + architecture + ".xctestrun"
+        names << full
+    end
+
+    names.each do |name|
+        fullPath = path + name
+        if File.exist?(fullPath)
+            puts "Found xctestrun file at " + fullPath
+            return fullPath
+        end
+    end 
+    return nil
+end
+
+def get_product_name(options)
+    unless product_name = options.fetch(:product_name)
+        unless index = bundle_ids.index(app_identifier)
+            die "Unable to determine path to application, and no entry was found in bundle_ids for app_identifier. Have you set product_name?"
+        end
+
+        unless index < target_names.count
+            die "Malformed bundle_ids or targets property, items should have the same element count and have corresponding entries"
+        end
+
+        product_name = target_names[index]
+    end
+
+    return product_name
+end
+
+# Create a dmg using the `dmgconfig' python tool. Requires that the tool is installed.
+def create_dmg(options)
+    dmg_config = "#{$repo_path}/" + get_or_die(options, :dmg_config)
+    # Put the dmg in the same directory as the app.
+    output_directory = get_or_die(options, :output_directory)
+
+    # We need to know the product name (i.e., Product.app), so look it up using the app_identifier and target_names.
+    target_names = get_or_die(options, :targets)
+    bundle_ids = get_or_die(options, :bundle_ids)
+    app_identifier = get_or_die(options, :app_identifier)
+    build = get_or_die(options, :build_number)
+
+    product_name = get_product_name(options)
+    app_path = File.expand_path("#{output_directory}/#{product_name}.app")
+    unless File.exist?(app_path)
+        die "File not found at #{app_path}. Have you set product_name?"
+    end
+
+    volume_name = options.fetch(:dmg_volume_name, product_name)
+
+    # dmgbuild has a bug outputting files in directories other than $pwd, so create it here and then move it afterwards.
+    dmg_path = "#{product_name}-#{build}.dmg"
+
+    puts "Creating disk image containing #{product_name}.app at #{dmg_path} using #{dmg_config}, mountable as #{volume_name}..."
+    puts `dmgbuild -Dapp=#{app_path} -Drepo=#{$repo_path} -s #{dmg_config} "#{volume_name}" "#{dmg_path}"`
+
+    copy_artifacts(
+      keep_original: false,
+      target_path: output_directory,
+      artifacts: ["fastlane/#{dmg_path}"],
+      fail_on_missing: true
+    )
+
+    lane_context[SharedValues::DMGBUILD_OUTPUT_PATH] = "#{output_directory}/#{dmg_path}"
+end
+
+def defaults_write(namespace, key, value)
+    puts "Writing default #{key} = #{value} for #{namespace}..."
+    result = `defaults write #{namespace} #{key} #{value}`
+    unless $?.success?
+        die "Could not set default: #{result}"
+    end
+end
+
+def create_simulator(options)
+    device_type = get_or_die(options, :simulator_device_type)
+    unless (runtime_filter = options[:simulator_runtime_filter] || options[:human_platform])
+        die "Unable to filter simulator runtimes, please define one of simulator_runtime_filter or human_platform"
+    end
+
+    unless (simulator_name = get_or_die(options, :simulator_name))
+        simulator_name = SecureRandom.uuid.to_s
+        options[:simulator_name] = simulator_name
+    end
+
+    puts "Finding the first runtime containing the string #{runtime_filter}..."
+    runtime = `xcrun simctl list runtimes | grep #{runtime_filter} | head -n 1 | awk '{print $NF}' 2> /dev/stdout`
+    die "Unable to get simulator runtime: #{runtime}" unless $?.success?
+
+    puts "Creating simulator #{simulator_name} with device #{device_type} and runtime #{runtime}..."
+    simulator_uuid = `xcrun simctl create "#{simulator_name}" com.apple.CoreSimulator.SimDeviceType.#{device_type} #{runtime} 2> /dev/stdout`
+    die "Unable to create simulator: #{result}" unless $?.success?
+
+    # Fix UI tests failing on secure field entry
+    defaults_write("com.apple.iphonesimulator", "ConnectHardwareKeyboard", "0")
+
+    puts "Simulator created. UUID: #{simulator_uuid}"
+    $created_simulator = true
+end
+
+def stop_simulator_if_needed(options)
+    return unless $created_simulator
+    simulator_name = get_or_die(options, :simulator_name)
+
+    puts "Stopping simulator #{simulator_name}..."
+    result = `xcrun simctl delete "#{simulator_name}"`
+    die "Unable to stop simulator: #{result}" unless $?.success?
+end
+
+def set_plist_keys_helper(configuration, xcodeproj, project_dir, target_map, action, plist_entries)
+    targets = []
+
+    # First, get all of the targets for a given scheme, as well as each target's dependencies.
+    # Getting dependencies is necessary because things like system extensions don't automatically get included into
+    # schemes as buildable references for some reason.
+    action.entries.each do |entry|
+        entry.buildable_references.each do |reference|
+            next unless (target = target_map[reference.target_name])
+            targets.append(target)
+
+            for dependency in target.dependencies
+                next unless (target = dependency.target)
+                targets.append(target)
+            end
+        end
+    end
+
+    plist_target_key = "INFOPLIST_FILE"
+    targets.each do |target|
+        next unless (build_settings = target.build_settings(configuration))
+
+        plist_path = build_settings.fetch(
+            plist_target_key,
+            target.common_resolved_build_setting(
+                plist_target_key
+            )
+        )
+        next unless plist_path
+
+        update_info_plist(
+            xcodeproj: xcodeproj,
+            plist_path: plist_path,
+            block: proc do |plist|
+                plist_entries.each do |key, value|
+                    plist[key] = value
+                end
+            end
+        )
+    end
+end
+
+# This one is kind of a monster: manually crack open the Xcode project, find the named scheme on disk, and iterate
+# through all of the targets and their dependencies for that scheme, adding the given keys to all of the info plists.
+def set_plist_keys(options)
+    build_target_entries = options.fetch(:extra_plist_entries, {})
+    test_target_entries = options.fetch(:extra_test_plist_entries, {})
+    return if build_target_entries.empty? and test_target_entries.empty?
+
+    xcodeproj = get_or_die(options, :xcodeproj)
+    xcodeproj = File.expand_path("#{$repo_path}/#{xcodeproj}")
+
+    scheme_name = get_or_die(options, :scheme)
+    configuration = get_or_die(options, :configuration)
+
+    unless (project_dir = options[:project_dir])
+        project_dir = File.expand_path("#{xcodeproj}/..")
+    end
+
+    project = Xcodeproj::Project.open(xcodeproj)
+    schemes = Xcodeproj::Project.schemes(xcodeproj)
+    shared_schemes = Xcodeproj::XCScheme.shared_data_dir(xcodeproj)
+    scheme_path = "#{shared_schemes}/#{scheme_name}.xcscheme"
+    unless (schemes.include?(scheme_name)) and File.exist?(scheme_path)
+        die "Unable to find scheme named #{scheme_name} in #{xcodeproj}."
+    end
+
+    scheme = Xcodeproj::XCScheme.new(scheme_path)
+
+    target_map = {}
+    project.targets.each do |target|
+        target_map[target.name] = target
+    end
+
+    unless build_target_entries.empty?
+        die "Scheme's build action is not defined." unless scheme.build_action
+        set_plist_keys_helper(configuration, xcodeproj, project_dir, target_map, scheme.build_action, build_target_entries)
+    end
+
+    unless test_target_entries.empty?
+        die "Scheme's build action is not defined." unless scheme.test_action
+        set_plist_keys_helper(configuration, xcodeproj, project_dir, target_map, scheme.test_action, test_target_entries)
+    end
+end
+
+#### LANE CONFIGURATION ---------------------------------------------------
+
+# configit
+#
+# Configure an invocation of buildit, testit, or shipit according to the build configuration and the provided
+# command-line options. The build configuration is located at #{$buildit_config_file} and is in a dictionary
+# format which allows for matching on other options according to a given build context.
+#
+# For more information on the configuration file format, visit [this repository](https://github.com/protonjohn/swift-piconfig).
+def configit(arguments)
+    if (context = lane_context[SharedValues::BUILDIT_CONFIG])
+        return context
+    end
+
+    lane_context[SharedValues::BUILDIT_ARGS] = arguments
+    
+    die "The command 'mint' was not found. Please make sure it is installed." unless command_exist? "mint"
+    die "Please pass a build train name to continue. Example: train:ios or train:mac." unless (train = arguments[:train])
+    die "Unable to determine current lane." unless (lane = lane_context[SharedValues::LANE_NAME])
+
+    arguments[:stage] = lane unless (arguments.include?(:stage))
+
+    puts "Bootstrapping release tools..."
+    mint_bootstrap()
+
+    puts "Getting release version..."
+    options = version_eval(arguments)
+
+    die "Unable to determine value for configuration." unless options[:configuration]
+
+    if options[:reject_uncommitted_changes]
+        ensure_git_status_clean(
+            show_uncommitted_changes: true,
+            show_diff: true
+        )
+    end
+
+    # Detect/set extra options for CI-specific features.
+    if options[:CI]
+        puts "Running #{options[:channel]} CI build for #{options[:train]}, version #{options[:build_number]}."
+
+        # Feature: "Build Commit Cache"
+        # If the :build_commit_cache_path option is set, this option will set build paths for artifacts, indexed by commit hash.
+        if (build_commit_cache = options[:build_commit_cache_path])
+            unless build_commit_cache.start_with?("/")
+                build_commit_cache = File.expand_path(build_commit_cache)
+                options[:build_commit_cache_path] = build_commit_cache
+            end
+
+            build_cache_path = build_commit_cache + "/BuildCaches/" + `git rev-parse --short=8 HEAD`.strip
+
+            unless options[:derived_data_path]
+                options[:derived_data_path] = build_cache_path + "/DerivedData"
+            end
+            unless options[:build_path]
+                options[:build_path] = build_cache_path + "/Build"
+            end
+            unless options[:buildlog_dir]
+                options[:buildlog_dir] = build_cache_path + "/BuildLog"
+            end
+
+            cleanup_build_commit_cache(options)
+        end
+    end
+
+    # Hack: make sure the output directory contains the configuration in the path.
+    if (output = options[:output_directory]) 
+        if not output.include?(options[:configuration])
+            unless output.end_with? "/"
+                output += "/"
+            end
+            output += options[:configuration]
+            options[:output_directory] = output
+        end
+
+        if not output.start_with?("/")
+            options[:output_directory] = "#{$repo_path}/#{output}"
+        end
+    end
+
+    lane_context[:BUILDIT_CONFIG] = options
+end
+
+#### LANES ----------------------------------------------------------------
+
+### BUILDING
+
+doc_lane(
+    name: :buildit,
+    summary: "Build a product according to the build configuration and the provided command-line options.",
+    examples: "
+      $ fastlane buildit train:mac
+      $ fastlane buildit train:ios swift_package_cache_path:/Applications/Developer/CachedPackages
+      ",
+    arguments: [
+      :train,
+      :channel,
+      :build_commit_cache,
+      :build_commit_cache_ttl,
+    ],
+    contexts: [:match, :build_app, :notarize],
+    env_vars: [
+      :MATCH_GIT_URL,
+      :MATCH_PASSWORD,
+      :MATCH_KEYCHAIN_PASSWORD,
+      :APPSTORE_API_KEY,
+      :APPSTORE_API_KEY_ID,
+      :APPSTORE_API_KEY_ISSUER,
+    ]
+) do |arguments|
+    options = configit(arguments)
+
+    begin
+        setup_codesigning(options)
+        set_version(options)
+        set_plist_keys(options)
+
+        build_options = filter_args(options, :build_app)
+        build_app(**build_options)
+
+        if options[:notarize_app]
+            notarize_options = filter_args(options, :notarize)
+
+            # what's the right way to get the app here?
+            # unless (package = lane_context[SharedValues::])
+    
+            notarize(**notarize_options)
+        end
+
+        if options[:dmg_config] || options[:dmg_volume_name]
+            create_dmg(options)
+        end
+    ensure
+        delete_keychain_if_needed(options)
+
+        if (buildlog_dir = options[:buildlog_dir])
+            expanded_path = File.expand_path(buildlog_dir)
+            copy_artifacts(
+              target_path: options[:output_directory],
+              artifacts: [expanded_path],
+              fail_on_missing: true
+            )
+        end
+    end
+end
+
+### TESTING
+
+doc_lane(
+    name: :testit,
+    summary: "
+      Test a product according to the build configuration and the provided command-line options.
+      Supports either building a testplan and running it directly, or running a testplan from an already-existing
+      built products zip file.
+      ",
+    examples: "
+      $ fastlane testit train:ios build_for_testing:true testplan:ProtonVPN-iOS-Unit-All
+      $ fastlane testit train:mac test_without_building:true built_products_zip:test_output/BuiltProducts.zip testplan:ProtonVPN-macOS-Unit-All
+      ",
+    arguments: [
+      :train,
+      :channel,
+      :code_coverage,
+      :build_commit_cache,
+      :build_commit_cache_ttl,
+    ],
+    contexts: [:match, :run_tests],
+    env_vars: [
+      :MATCH_GIT_URL,
+      :MATCH_PASSWORD,
+      :MATCH_KEYCHAIN_PASSWORD,
+      :APPSTORE_API_KEY,
+      :APPSTORE_API_KEY_ID,
+      :APPSTORE_API_KEY_ISSUER,
+      :SLACK_WEBHOOK_URL,
+    ]
+) do |arguments|
+    options = configit(arguments)
+
+    if options[:test_without_building]
+        # Test bundle caching: testit understands the build_products_zip argument, and if these two are both passed,
+        # we look in the products for an xctestrun file which matches the passed scheme, destination, and architecture.
+        unless (build_products_zip = lane_context.fetch(
+            SharedValues::SCAN_ZIP_BUILT_PRODUCTS_PATH,
+            options[:built_products_zip]
+        ))
+            die "test_without_building supplied in options, but built_products_zip was not specified."
+        end
+        scheme = get_or_die(options, :scheme)
+        testplan = get_or_die(options, :testplan)
+
+        architecture = options.fetch(:architecture, "arm64-x86_64")
+
+        temp_dir = `mktemp -d` + "/BuildProducts"
+        FileUtils.mkdir_p temp_dir
+
+        puts "Unzipping build products #{build_products_zip} into #{temp_dir}..."
+        `unzip #{build_products_zip} -d #{temp_dir}`
+
+        # Find xctestrun file. XCode generates files with different names, so a little bit of logic is required here
+        unless (xctestrun = find_xctestrun_filename(temp_dir, scheme, testplan, destination, architecture))
+            die "Can't find xctestrun file in #{temp_dir}"
+        end
+
+        options[:xctestrun] = xctestrun
+    end
+
+    begin
+        unless options[:test_without_building]
+            # We have to build, so get our tools ready for building/signing the tests.
+            setup_codesigning(options)
+            set_version(options)
+            set_plist_keys(options)
+        end
+
+        if options[:simulator_device_type]
+            create_simulator(options)
+        end
+
+        run_tests_options = filter_args(options, :run_tests)
+        # Finally run tests
+        run_tests(
+            **run_tests_options,
+            result_bundle: true,
+        )
+    ensure
+        stop_simulator_if_needed(options)
+        delete_keychain_if_needed(options)
+
+        if (buildlog_dir = options[:buildlog_dir])
+            expanded_path = File.expand_path(buildlog_dir)
+            copy_artifacts(
+              target_path: options[:output_directory],
+              artifacts: [expanded_path],
+              fail_on_missing: true
+            )
+        end
+    end
+
+    # Note for the below: code_coverage can be true, false, or `nil` if it's not specified.
+    # So if the user explicitly enables code coverage by setting code_coverage = true, then we'll do it.
+    # Otherwise, if we're running tests (i.e., not just building for testing) and the user hasn't explicitly
+    # *disabled* code coverage by setting it to false, we'll go ahead and interpret the reports.
+    code_coverage = options[:code_coverage]
+    if code_coverage == true or (code_coverage != false and not options[:build_for_testing])
+        interpret_code_coverage(options)
+    end
+end
+
+### DISTRIBUTION
+
+doc_lane(
+    name: :shipit,
+    summary: "Distribute a product according to the build configuration and the provided command-line options.",
+    examples: "
+      $ fastlane shipit train:ios channel:alpha testflight_groups:\"Internal Members\"
+      $ fastlane shipit train:mac channel:beta nexus_project_name:\"special_project\"
+      ",
+    arguments: [:train, :channel],
+    contexts: [
+      :sentry_upload_dif,
+      :sentry_create_release,
+      :sentry_set_commits,
+      :upload_to_testflight,
+      :deliver,
+      :nexus_upload,
+      :slack,
+    ],
+    env_vars: [
+      :APPSTORE_API_KEY,
+      :APPSTORE_API_KEY_ID,
+      :APPSTORE_API_KEY_ISSUER,
+      :SENTRY_API_KEY,
+      :SENTRY_AUTH_TOKEN,
+      :JIRA_API_TOKEN,
+      :AL_NEXUS_PASSWORD,
+      :SLACK_WEBHOOK_URL,
+    ]
+) do |arguments|
+    options = configit(arguments)
+    
+    unless (train = options[:train]) and 
+        (build_number = options[:build_number]) and 
+        (channel = options[:channel]) and
+        (changelog = options[:changelog])
+        die "Can't release build - need train, version, channel, and changelog."
+    end
+
+    if ((api_key = get_train_secret(train, "SENTRY_API_KEY")) or 
+          auth_token = get_train_secret(train, "SENTRY_AUTH_TOKEN")) and
+        (org_slug = options[:sentry_org_slug]) and
+        (project_slug = options[:sentry_project_slug])
+
+        # IMPORTANT: We don't want to put these in the global options hash, because it gets printed if there are failures.
+        upload_dif_args = filter_args(options, :sentry_upload_dif)
+        upload_dif_args[:api_key] = api_key if api_key
+        upload_dif_args[:auth_token] = auth_token if auth_token
+        sentry_upload_dif(
+            **upload_dif_args
+        )
+
+        create_release_args = filter_args(options, :sentry_create_release)
+        create_release_args[:api_key] = api_key if api_key
+        create_release_args[:auth_token] = auth_token if auth_token
+        sentry_create_release(
+            **create_release_args
+        )
+
+        set_commits_args = filter_args(options, :sentry_set_commits)
+        sentry_set_commits(
+            **set_commits_args
+        )
+    end
+  
+    if options[:testflight_upload]
+        testflight_options = filter_args(options, :upload_to_testflight)
+
+        upload_to_testflight(
+          **testflight_options,
+          demo_account_required: true
+        )
+    end
+
+    if options[:deliver_metadata_path]
+        deliver_options = filter_args(options, :deliver)
+
+        deliver(**deliver_options)
+    end
+
+    if options[:nexus_id]
+        nexus_options = filter_args(options, :nexus_upload)
+        
+        nexus_upload(
+          **nexus_options,
+          nexus_version: 3,
+        )
+    end
+
+    if (slack_url = get_train_secret(options[:train], "SLACK_WEBHOOK_URL"))
+        slack_options = filter_args(options, :slack)
+        slack_options[:slack_url] = slack_url
+
+        unless slack_options[:message]
+            slack_options[:message] = <<~MESSAGE
+              :apple-computer-inc: #{train} #{build_number} has been released.
+
+              ```
+              #{changelog}
+              ```
+            MESSAGE
+        end
+
+        slack(
+            **slack_options,
+            success: true
+        )
+    end
+
+    if (jira_url = options[:jira_url]) and 
+        (jira_token = get_train_secret(options[:train], "JIRA_API_TOKEN")) and
+        (jira_ids = options[:project_ids]) and not jira_ids.empty?
+
+        jira_ids.each do |jira_id|
+            jira(
+                url: jira_url,
+                password: jira_token,
+                ticket_id: jira_id,
+                comment_text: "#{jira_id} was built into #{train} #{build_number}."
+            )
+        end
+    end
+end
+

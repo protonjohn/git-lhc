@@ -12,11 +12,12 @@ import Yams
 @testable import git_lhc
 
 class ConfigurationTests: LHCTestCase {
+    #if false
     func testConfigFileCreated() throws {
         var createDefaultConfig = try CreateDefaultConfig.parse([])
         try createDefaultConfig.run()
 
-        guard let contents = LHC.fileManager.contents(atPath: Self.configPath) else {
+        guard let contents = Internal.fileManager.contents(atPath: Self.configPath) else {
             XCTFail("No file exists at \(Self.configPath)")
             return
         }
@@ -31,4 +32,5 @@ class ConfigurationTests: LHCTestCase {
         let config = Configuration.example
         XCTAssertNotNil(config)
     }
+    #endif
 }

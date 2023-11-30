@@ -7,20 +7,26 @@
 
 import Foundation
 import XCTest
+
+@testable import LHC
+@testable import LHCInternal
 @testable import git_lhc
 
 class CreateReleaseTests: LHCTestCase {
-    func invoke(_ args: [String] = []) async throws {
+    func invoke(_ args: [String] = []) async throws -> CreateRelease {
         var createRelease = try CreateRelease.parse(args)
         try await createRelease.run()
+        return createRelease
     }
 
-    func subtestCreatingNewProdRelease(train: Configuration.Train? = nil) async throws {
+    func subtestCreatingNewProdRelease(train: String?) async throws {
         var args = ["--push"]
         if let train {
-            args.append(contentsOf: ["--train", train.name])
+            args.append(contentsOf: ["--train", train])
         }
-        try await invoke(args)
+
+        var invocation = try await invoke(args)
+        let options = invocation.parent.options
 
         XCTAssertEqual(repoUnderTest.pushes.count, 1)
         guard let first = repoUnderTest.pushes.first,
@@ -43,13 +49,13 @@ class CreateReleaseTests: LHCTestCase {
             XCTFail("Could not get current branch.")
             return
         }
-        let expectedTagName = "refs/tags/\(train?.tagPrefix ?? "")1.0.0"
+        let expectedTagName = "refs/tags/\(options?.tagPrefix ?? "")1.0.0"
         XCTAssertEqual(name, expectedTagName)
         XCTAssertEqual(tag.oid, head.oid)
         
-        if let train {
+        if let train = options?.train {
             XCTAssertEqual(tag.message, """
-            release: test 1.0.0
+            release: \(train) 1.0.0
 
             - Release notes content
             """)
@@ -57,7 +63,7 @@ class CreateReleaseTests: LHCTestCase {
     }
 
     func testCreatingNewProdRelease() async throws {
-        LHC.jiraClient = MockJiraClient.init(issues: [
+        Internal.jiraClient = MockJiraClient.init(issues: [
             .init(
                 id: "12345",
                 summary: nil,
@@ -76,35 +82,35 @@ class CreateReleaseTests: LHCTestCase {
             )
         ])
 
-        try await subtestCreatingNewProdRelease()
+        try await subtestCreatingNewProdRelease(train: nil)
 
-        let train: Configuration.Train = .init(name: "test", displayName: nil, tagPrefix: "train/", replace: nil)
-        Configuration.configuration = .init(
-            projectPrefix: "TEST-",
-            projectIdTrailerName: "Project-Id",
-            jiraReleaseNotesField: MockJiraClient.customField,
-            subjectMaxLineLength: nil,
-            bodyMaxLineLength: nil,
-            branchNameLinting: nil,
-            commitCategories: Configuration.default.commitCategories,
-            trains: [train]
-        )
+        Configuration.getConfig = { _ in
+            try? .init(parsing: """
+            train = test
+            tag_prefix = train/
+            project_id_prefix = TEST-
+            project_id_trailer = Project-Id
+            jira_release_notes_field = \(MockJiraClient.customField)
+            commit_categories = ["feat", "fix", "test", "build", "ci"]
+            """)
+        }
 
-        try await subtestCreatingNewProdRelease(train: train)
+        try await subtestCreatingNewProdRelease(train: "test")
     }
 
-    func subtestCreatingPreleaseForVersion(train: Configuration.Train? = nil, channel: ReleaseChannel, prereleaseBuild: String = "1") async throws {
+    func subtestCreatingPreleaseForVersion(train: String? = nil, channel: ReleaseChannel, prereleaseBuild: String = "1") async throws -> CreateRelease {
         var args = ["--push", "--channel", channel.rawValue]
         if let train {
-            args.append(contentsOf: ["--train", train.name])
+            args.append(contentsOf: ["--train", train])
         }
-        try await invoke(args)
+        var invocation = try await invoke(args)
+        let options = invocation.parent.options
 
         XCTAssertEqual(repoUnderTest.pushes.count, 1)
         guard let first = repoUnderTest.pushes.first,
               case let .sshPath(publicKeyPath, privateKeyPath, passphrase) = first.0 else {
             XCTFail("Push object was missing or has incorrect credentials")
-            return
+            return invocation
         }
 
         XCTAssertEqual(privateKeyPath, "/Users/test/.ssh/id_rsa")
@@ -114,16 +120,18 @@ class CreateReleaseTests: LHCTestCase {
         guard let reference = first.1 as? MockTagReference,
               case let .annotated(name, tag) = reference else {
             XCTFail("Pushed tag is not a valid tag reference")
-            return
+            return invocation
         }
 
         guard let head = try repoUnderTest.currentBranch() else {
             XCTFail("Could not get current branch.")
-            return
+            return invocation
         }
-        let expectedTagName = "refs/tags/\(train?.tagPrefix ?? "")1.0.0-\(channel.rawValue).\(prereleaseBuild)"
+        let expectedTagName = "refs/tags/\(options?.tagPrefix ?? "")1.0.0-\(channel.rawValue).\(prereleaseBuild)"
         XCTAssertEqual(name, expectedTagName)
         XCTAssertEqual(tag.oid, head.oid)
+
+        return invocation
     }
 
     func commitAndSetHEAD(repo: inout MockRepository) throws -> MockCommit {
@@ -151,38 +159,36 @@ class CreateReleaseTests: LHCTestCase {
 
     func testCreatingPrereleasesForVersion() async throws {
         for channel in ReleaseChannel.prereleaseChannels {
-            try await subtestCreatingPreleaseForVersion(channel: channel)
+            _ = try await subtestCreatingPreleaseForVersion(channel: channel)
 
             let oldRepo = MockRepository.mock
             var repo = oldRepo
             _ = try commitAndTag(repo: &repo, tagName: "1.0.0-\(channel.rawValue).1")
 
             MockRepository.mock = repo
-            try await subtestCreatingPreleaseForVersion(channel: channel, prereleaseBuild: "2")
+            _ = try await subtestCreatingPreleaseForVersion(channel: channel, prereleaseBuild: "2")
             MockRepository.mock = oldRepo
         }
 
-        let train: Configuration.Train = .init(name: "test", displayName: nil, tagPrefix: "train/", replace: nil)
-        Configuration.configuration = .init(
-            projectPrefix: nil,
-            projectIdTrailerName: nil,
-            jiraReleaseNotesField: nil,
-            subjectMaxLineLength: nil,
-            bodyMaxLineLength: nil,
-            branchNameLinting: nil,
-            commitCategories: Configuration.default.commitCategories,
-            trains: [train]
-        )
+        let train = "test"
+        Configuration.getConfig = { _ in
+            try? .init(parsing: """
+            train = \(train)
+            tag_prefix = train/
+            commit_categories = ["feat", "fix", "test", "build", "ci"]
+            """)
+        }
 
         for channel in ReleaseChannel.prereleaseChannels {
-            try await subtestCreatingPreleaseForVersion(train: train, channel: channel)
+            var invocation = try await subtestCreatingPreleaseForVersion(train: train, channel: channel)
+            let options = invocation.parent.options
 
             let oldRepo = MockRepository.mock
             var repo = oldRepo
-            _ = try commitAndTag(repo: &repo, tagName: "\(train.tagPrefix ?? "")1.0.0-\(channel.rawValue).1")
+            _ = try commitAndTag(repo: &repo, tagName: "\(options?.tagPrefix ?? "")1.0.0-\(channel.rawValue).1")
 
             MockRepository.mock = repo
-            try await subtestCreatingPreleaseForVersion(train: train, channel: channel, prereleaseBuild: "2")
+            _ = try await subtestCreatingPreleaseForVersion(train: train, channel: channel, prereleaseBuild: "2")
             MockRepository.mock = oldRepo
         }
     }

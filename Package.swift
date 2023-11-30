@@ -7,19 +7,7 @@ let package = Package(
     name: "git-lhc",
     platforms: [.macOS(.v13)],
     products: [
-        // Products define the executables and libraries a package produces, and make them visible to other packages.
-        .plugin(
-            name: "EmbedReleaseDescription",
-            targets: ["EmbedReleaseDescription"]
-        ),
-        .plugin(
-            name: "EmbedReleaseObject",
-            targets: ["EmbedReleaseObject"]
-        ),
-        .plugin(
-            name: "EmbedVersion",
-            targets: ["EmbedVersion"]
-        ),
+        .library(name: "LHC", targets: ["LHC"]),
         .executable(
             name: "git-lhc",
             targets: ["git-lhc"]
@@ -34,6 +22,8 @@ let package = Package(
         .package(url: "https://github.com/mxcl/Version", exact: "2.0.1"),
         .package(url: "https://github.com/pointfreeco/swift-parsing", exact: "0.13.0"),
         .package(url: "https://github.com/protonjohn/plistutil", exact: "0.1.0-beta.1"),
+        .package(url: "https://github.com/apple/swift-docc-plugin", exact: "1.0.0"),
+        .package(url: "https://github.com/almazrafi/DictionaryCoder", exact: "1.1.0")
     ],
     targets: [
         .executableTarget(
@@ -43,34 +33,31 @@ let package = Package(
                 "Yams",
                 "SwiftGit2",
                 "Version",
-                .product(name: "CodingCollection", package: "plistutil"),
+                "LHC",
+                "LHCInternal",
                 .product(name: "Parsing", package: "swift-parsing"),
+            ]
+        ),
+        .target(
+            name: "LHC",
+            dependencies: [
+                "Version",
+                "SwiftGit2",
+                "LHCInternal",
+                "DictionaryCoder",
+                .product(name: "Parsing", package: "swift-parsing")
             ],
             resources: [
-                .process("lhc.example.yml")
+                .process("lhcconfig.example")
             ]
         ),
-        .plugin(
-            name: "EmbedReleaseDescription",
-            capability: .buildTool(),
+        .target(name: "LHCInternal",
             dependencies: [
-                "git-lhc"
-            ]
-        ),
-        .plugin(
-            name: "EmbedReleaseObject",
-            capability: .buildTool(),
-            dependencies: [
-                "git-lhc",
-                "plistutil"
-            ]
-        ),
-        .plugin(
-            name: "EmbedVersion",
-            capability: .buildTool(),
-            dependencies: [
-                "git-lhc"
-            ]
+                "Version",
+                "SwiftGit2",
+                "Yams",
+                .product(name: "CodingCollection", package: "plistutil"),
+                ]
         ),
         .testTarget(
             name: "LHCTests",

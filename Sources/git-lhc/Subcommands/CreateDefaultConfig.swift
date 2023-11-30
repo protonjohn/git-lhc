@@ -8,7 +8,10 @@
 import Foundation
 import ArgumentParser
 import Yams
+import LHC
+import LHCInternal
 
+#if false
 struct CreateDefaultConfig: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Create a default configuration file at the specified path."
@@ -19,21 +22,21 @@ struct CreateDefaultConfig: ParsableCommand {
 
     mutating func run() throws {
         if !configPath.starts(with: "/") {
-            configPath = "\(LHC.fileManager.currentDirectoryPath)/\(configPath)"
+            configPath = "\(Internal.fileManager.currentDirectoryPath)/\(configPath)"
         }
 
-        if LHC.fileManager.fileExists(atPath: configPath) {
-            guard LHC.promptForConfirmation("File at \(configPath) already exists.") else {
+        if Internal.fileManager.fileExists(atPath: configPath) {
+            guard Internal.promptForConfirmation("File at \(configPath) already exists.") else {
                 throw CreateDefaultConfigError.userAborted
             }
 
-            try LHC.fileManager.removeItem(atPath: configPath)
+            try Internal.fileManager.removeItem(atPath: configPath)
         }
 
         let encoder = YAMLEncoder()
         let config = try encoder.encode(Configuration.default)
 
-        guard LHC.fileManager.createFile(
+        guard Internal.fileManager.createFile(
             atPath: configPath,
             contents: config.data(using: .utf8)
         ) else {
@@ -45,3 +48,5 @@ struct CreateDefaultConfig: ParsableCommand {
 enum CreateDefaultConfigError: String, Error {
     case userAborted = "User aborted."
 }
+
+#endif

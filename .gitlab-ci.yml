@@ -1,0 +1,15 @@
+pages:
+  tags:
+    - vpn-apple-builds
+  script: |
+    mkdir public
+    # hack to get the path component of the URL, so we can tell the doc generation what the base path is
+    # (use CI_PAGES_DOMAIN as the delimiter of a URL like https://subdomain.pages-host.com/page/base/path;
+    # since CI_PAGES_DOMAIN is pages-host.com, then the "second field" of the string is /page/base/path,
+    # and then the sed command strips the leading slash)
+    path=$(awk -F "$CI_PAGES_DOMAIN" '{print $2}' <<< "$CI_PAGES_URL" | sed 's/^\///')
+    ./Integration/Scripts/build_docs.sh "$path" public
+  artifacts:
+    paths:
+      - public
+

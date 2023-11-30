@@ -8,6 +8,8 @@
 import Foundation
 import ArgumentParser
 import SwiftGit2
+import LHC
+import LHCInternal
 
 struct Lint: ParsableCommand, VerboseCommand {
     static let configuration = CommandConfiguration(
@@ -25,19 +27,15 @@ struct Lint: ParsableCommand, VerboseCommand {
         help: "Without the verbose option, no output is produced upon success."
     )
     var verbose: Bool = false
-
-    static var config: Configuration {
-        .configuration
-    }
-
+    
     struct ProjectID {
         let value: String
         let components: [String]
     }
 
-    func run() throws {
-        SwiftGit2.initialize()
-        let repo = try LHC.openRepo(at: parent.repo)
+    mutating func run() throws {
+        Internal.initialize()
+        let repo = try Internal.openRepo(at: parent.repo)
         let head = try repo.currentBranch() ?? repo.HEAD()
         if let branch = head as? Branchish {
             printIfVerbose("Linting branch \(branch.name).")
@@ -46,17 +44,17 @@ struct Lint: ParsableCommand, VerboseCommand {
         var startOID: ObjectID?
         if let since {
             startOID = try repo.oid(for: since)
-        } else if GitlabEnvironment.isCI {
+        } else if Internal.isCI {
             let ciStartOID: ObjectID?
             do {
                 ciStartOID = try lintBaseFromGitlabCI(for: repo, head: head)
             } catch {
-                LHC.print("Could not invoke lint job from CI: \(error)", error: true)
+                Internal.print("Could not invoke lint job from CI: \(error)", error: true)
                 return
             }
 
             guard let ciStartOID else {
-                LHC.print("Could not determine commit base object for linting. Aborting.", error: true)
+                Internal.print("Could not determine commit base object for linting. Aborting.", error: true)
                 return
             }
 
@@ -106,7 +104,7 @@ struct Lint: ParsableCommand, VerboseCommand {
         return oid
     }
 
-    func lint(commit: Commitish, branch: Branchish?) throws {
+    mutating func lint(commit: Commitish, branch: Branchish?) throws {
         printIfVerbose("Linting commit \(commit.oid)...")
 
         let components = commit.message
@@ -123,15 +121,15 @@ struct Lint: ParsableCommand, VerboseCommand {
             try lint(paragraphs: components[1...], of: commit)
         }
 
-        let branchName = branch?.name ?? LHC.branchName
+        let branchName = branch?.name ?? Internal.branchName
         try lintTrailers(of: commit, branchName: branchName)
 
         printIfVerbose("No issues found.\n")
     }
 
-    func lint(subject: String, of commit: Commitish) throws {
+    mutating func lint(subject: String, of commit: Commitish) throws {
         printIfVerbose("Checking commit summary...")
-        if let subjectMaxLength = Self.config.subjectMaxLineLength,
+        if let subjectMaxLength = parent.options?.subjectMaxLineLength,
            subject.count > subjectMaxLength {
             throw LintingError(commit, .subjectTooLong(configuredMax: subjectMaxLength))
         }
@@ -149,18 +147,18 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
 
         let category = String(categorySubstring)
-        guard let categories = Configuration.configuration.commitCategories else {
+        guard let categories = parent.options?.commitCategories else {
             return
         }
 
         printIfVerbose("Checking that commit type matches configured categories...")
-        guard categories.contains(where: { $0.name == category }) != false else {
+        guard categories.contains(category) else {
             throw LintingError(commit, .subjectHasUnrecognizedCategory(category: category))
         }
     }
 
-    func lint(paragraphs: ArraySlice<String>, of commit: Commitish) throws {
-        if let bodyMaxColumns = Self.config.bodyMaxLineLength,
+    mutating func lint(paragraphs: ArraySlice<String>, of commit: Commitish) throws {
+        if let bodyMaxColumns = parent.options?.bodyMaxLineLength,
            paragraphs.contains(where: { paragraph in
            paragraph.split(separator: "\n")
                .contains(where: { line in line.count > bodyMaxColumns })
@@ -170,8 +168,8 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
     }
 
-    func lintTrailers(of commit: Commitish, branchName: String?) throws {
-        guard let trailerName = Self.config.projectIdTrailerName,
+    mutating func lintTrailers(of commit: Commitish, branchName: String?) throws {
+        guard let trailerName = parent.options?.projectIdTrailerName,
               let branchName else {
             printIfVerbose("No trailer name configured or not a branch, skipping trailer linting.")
 
@@ -179,7 +177,7 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
 
         let projectIds = branchName.components(separatedBy: "/")
-            .compactMap(ProjectID.init(string:))
+            .compactMap { ProjectID(string: $0, options: parent.options) }
 
         printIfVerbose("Linting trailers...")
 
@@ -204,12 +202,12 @@ struct Lint: ParsableCommand, VerboseCommand {
 }
 
 extension Lint.ProjectID {
-    init?(string: String) {
-        guard let regexes = Configuration.BranchNameLinting.branchRegexes, !regexes.isEmpty else {
+    init?(string: String, options: Configuration.Options? = nil) {
+        guard let regexes = options?.projectIdRegexes, !regexes.isEmpty else {
             return nil
         }
 
-        for regex in regexes {
+        for regex in regexes.compactMap({ try? Regex(caching: $0) }) {
             guard let match = try? regex.firstMatch(in: string),
                   let firstGroup = match.output.first,
                   let substring = firstGroup.substring else {
@@ -227,7 +225,7 @@ extension Lint.ProjectID {
                     }
                     return String(component)
                 }
-            } else if let prefix = Configuration.configuration.projectPrefix,
+            } else if let prefix = options?.projectIdPrefix,
                       !matchString.starts(with: prefix) {
                 self.value = prefix + matchString
                 self.components = [prefix, matchString]
