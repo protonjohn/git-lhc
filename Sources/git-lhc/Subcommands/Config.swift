@@ -53,7 +53,7 @@ struct ConfigEval: ParsableCommand {
 
     mutating func run() throws {
         guard let config = parent.config else {
-            throw ValidationError("")
+            throw ValidationError("Error in configuration file.")
         }
 
         guard !checkOnly else {
@@ -75,13 +75,7 @@ struct ConfigEval: ParsableCommand {
         })
 
         // Then, evaluate the state according to the passed train, channel, and the defined values.
-        guard let values = try parent.config?.eval(
-            train: parent.train,
-            channel: parent.channel,
-            define: defines
-        ) else {
-            throw ValidationError("")
-        }
+        let values = try config.eval(train: parent.train, channel: parent.channel, define: defines)
 
         guard let outputFile = URL(string: outputFile ?? "/dev/stdout") else {
             throw ValidationError("Invalid path \(outputFile!).")

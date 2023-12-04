@@ -141,7 +141,7 @@ enum DescribeReleaseError: Error, CustomStringConvertible {
         case let .versionNotFound(version, train):
             var result = "No version \(version) found in commit history"
             if let releaseTrain = train {
-                result += " for train '\(train ?? "(nil)")'"
+                result += " for train '\(releaseTrain)'"
             }
             return result
         }

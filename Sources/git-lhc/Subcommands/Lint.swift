@@ -158,12 +158,12 @@ struct Lint: ParsableCommand, VerboseCommand {
     }
 
     mutating func lint(paragraphs: ArraySlice<String>, of commit: Commitish) throws {
-        if let bodyMaxColumns = parent.options?.bodyMaxLineLength,
-           paragraphs.contains(where: { paragraph in
-           paragraph.split(separator: "\n")
-               .contains(where: { line in line.count > bodyMaxColumns })
+        guard let bodyMaxColumns = parent.options?.bodyMaxLineLength else { return }
+
+        printIfVerbose("Checking line lengths...")
+        if paragraphs.contains(where: {
+            $0.lines.contains(where: { line in line.containsWhitespace && line.count > bodyMaxColumns })
         }) {
-            printIfVerbose("Checking line lengths...")
             throw LintingError(commit, .lineInBodyTooLong(configuredMax: bodyMaxColumns))
         }
     }
@@ -304,4 +304,14 @@ extension LintingError {
 
 extension String {
     static let nullSha = "0000000000000000000000000000000000000000"
+
+    var lines: [Substring] {
+        split(separator: "\n")
+    }
+}
+
+extension Substring {
+    var containsWhitespace: Bool {
+        unicodeScalars.contains { CharacterSet.whitespaces.contains($0) }
+    }
 }

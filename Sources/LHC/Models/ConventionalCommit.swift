@@ -171,13 +171,13 @@ extension ConventionalCommit {
     }
 
     public func versionBump(options: Configuration.Options? = nil) -> VersionBump {
-        let increments = options?.categoryIncrements
-
         if isBreaking {
             return .major
         } else if let incrementOption = options?.categoryIncrements?[header.type],
                   let bump = VersionBump(string: incrementOption)  {
             return bump
+        } else if header.type.starts(with: "feat") {
+            return .minor
         } else {
             return .patch
         }
