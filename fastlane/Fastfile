@@ -12,11 +12,12 @@ require 'securerandom' # for generating UUIDs
 SharedValues::BUILDIT_ARGS = :BUILDIT_ARGS
 # The configuration that gets evaluated according to the given arguments, saved in the global lane context.
 SharedValues::BUILDIT_CONFIG = :BUILDIT_CONFIG
+# The path to the build application.
+SharedValues::BUILDIT_APP_PATH = :BUILDIT_APP_PATH
+# The product name.
+SharedValues::BUILDIT_PRODUCT_NAME = :BUILDIT_PRODUCT_NAME
 # The path the dmg file created by dmgbuild.
 SharedValues::DMGBUILD_OUTPUT_PATH = :DMGBUILD_OUTPUT_PATH
-
-# The path to the match dictionary that gets evaluated according to buildit's arguments.
-$buildit_config_file = ENV["BUILDIT_CONFIG"] || ".buildit"
 
 # Fastlane puts us in $repo_path/fastlane, so we need a path to the repository itself.
 $repo_path = File.expand_path("#{Dir.pwd}/..")
@@ -107,8 +108,10 @@ $arg_contexts = {
       :buildlog_dir => :buildlog_path,
       :swift_package_cache_path => :cloned_source_packages_path,
       :team_id => :export_team_id,
-      :xcodeproj => :project,
-      :xcworkspace => :workspace,
+      # These are namespaced separately because they can cause problems for projects which have a mix of Xcode
+      # targets and Swift packages.
+      :build_app_xcodeproj => :project,
+      :build_app_xcworkspace => :workspace,
     }
   },
   :run_tests => {
@@ -149,8 +152,10 @@ $arg_contexts = {
       :buildlog_dir => :buildlog_path,
       :swift_package_cache_path => :cloned_source_packages_path,
       :test_report_format => :output_types,
-      # :xcodeproj => :project, This breaks things when used with testplan. Maybe don't use for now
-      :xcworkspace => :workspace,
+      # These are namespaced separately because they can cause problems for projects which have a mix of Xcode
+      # targets and Swift packages.
+      :run_tests_xcodeproj => :project,
+      :run_tests_xcworkspace => :workspace,
     }
   },
   :slack => {
@@ -309,6 +314,8 @@ $arg_docs = {
     :archive_path => "The path to the created archive",
     :asc_provider => "Provider short name for accounts associated with multiple providers.",
     :automatic_release => "Should the app be automatically released once it's approved? (Can not be used together with auto_release_date)",
+    :build_app_xcodeproj => "The path to the Xcode project. This is namespaced separately from `xcodeproj` to avoid causing build difficulties with projects that have a mix of traditional Xcode targets and Swift packages.",
+    :build_app_xcworkspace => "The path to the Xcode workspace. This is namespaced separately from `xcworkspace` to avoid causing build difficulties with projects that have a mix of traditional Xcode targets and Swift packages.",
     :build_clean => "Should the project be cleaned before building it?",
     :build_for_testing=> "Build for testing only, does not run tests.",
     :build_number => "The equivalent of CFBundleVersion. Value is derived from git history by default.",
@@ -354,6 +361,8 @@ $arg_docs = {
     :result_bundle => "Should an Xcode result bundle be generated in the output directory",
     :result_bundle_path => "Custom path for the result bundle, overrides result_bundle.",
     :run_rosetta_simulator => "Adds arch=x86_64 to the xcodebuild 'destination' argument to run simulator in a Rosetta mode",
+    :run_tests_xcodeproj => "The path to the Xcode project. This is namespaced separately from `xcodeproj` to avoid causing build difficulties with projects that have a mix of traditional Xcode targets and Swift packages.",
+    :run_tests_xcworkspace => "The path to the Xcode workspace. This is namespaced separately from `xcworkspace` to avoid causing build difficulties with projects that have a mix of traditional Xcode targets and Swift packages.",
     :scheme => "The project's scheme. Make sure it's marked as Shared.",
     :sdk => "The SDK that should be used for building the application.",
     :sentry_commit_head => "Commit spec, see `sentry-cli releases help set-commits` for more information",
@@ -802,12 +811,12 @@ def version_eval(arguments)
 
     # JSON gets confused and prefixes all symbols with ":", which is not what we want.
     arguments.transform_keys!(&:to_s)
-
+    
     defines = ""
     arguments.each do |argument, value|
         # We pass train and channel explicitly further down below.
         next if argument == "train" or argument == "channel"
-        defines += "-D #{argument}=#{valUe.to_s} "
+        defines += "-D #{argument}=#{value.to_s} "
     end
 
     puts "Evaluating build configuration..."
@@ -815,8 +824,8 @@ def version_eval(arguments)
         mint run -s -m #{$mintfile} \
         git-lhc config eval \
           -i 'CI*' -i 'ATLAS*' -i 'LHC*' \
-          --channel #{arguments[:channel]} \
-          --train #{arguments[:train]} \
+          --channel #{arguments["channel"]} \
+          --train #{arguments["train"]} \
           #{defines.strip} 2> /dev/stdout`
 
     unless $?.success?
@@ -839,6 +848,11 @@ def version_eval(arguments)
 
     if (changelog = release["changelog"]) and not arguments[:changelog]
         result[:changelog] = changelog
+    end
+
+    # Filter out any keys starting with an underscore.
+    result = result.delete_if do |key, value|
+        key.start_with?("_")
     end
 
     # Transform keys back into symbols so that splat-arguments work again.
@@ -931,6 +945,10 @@ def find_xctestrun_filename(path, scheme, testplan, destination, architecture)
 end
 
 def get_product_name(options)
+    if (product_name = lane_context[SharedValues::BUILDIT_PRODUCT_NAME])
+        return product_name
+    end
+
     unless product_name = options.fetch(:product_name)
         unless index = bundle_ids.index(app_identifier)
             die "Unable to determine path to application, and no entry was found in bundle_ids for app_identifier. Have you set product_name?"
@@ -943,6 +961,7 @@ def get_product_name(options)
         product_name = target_names[index]
     end
 
+    lane_context[SharedValues::BUILDIT_PRODUCT_NAME] = product_name
     return product_name
 end
 
@@ -951,6 +970,7 @@ def create_dmg(options)
     dmg_config = "#{$repo_path}/" + get_or_die(options, :dmg_config)
     # Put the dmg in the same directory as the app.
     output_directory = get_or_die(options, :output_directory)
+    build_path = get_or_die(options, :build_path)
 
     # We need to know the product name (i.e., Product.app), so look it up using the app_identifier and target_names.
     target_names = get_or_die(options, :targets)
@@ -959,9 +979,8 @@ def create_dmg(options)
     build = get_or_die(options, :build_number)
 
     product_name = get_product_name(options)
-    app_path = File.expand_path("#{output_directory}/#{product_name}.app")
-    unless File.exist?(app_path)
-        die "File not found at #{app_path}. Have you set product_name?"
+    unless (app_path = get_app_path(options))
+        die "Unable to determine app_path. Have you set product_name?"
     end
 
     volume_name = options.fetch(:dmg_volume_name, product_name)
@@ -1110,15 +1129,42 @@ def set_plist_keys(options)
     end
 end
 
+def get_app_path(options)
+    if (app_path = lane_context[SharedValues::BUILDIT_APP_PATH])
+        return app_path
+    end
+
+    app_path = nil
+    product_name = get_product_name(options)
+    if (archive = lane_context[SharedValues::XCODEBUILD_ARCHIVE]) and
+        File.exist?("#{archive}/Products/Applications/#{product_name}.app")
+
+    elsif (derived_data = options[:derived_data_path]) and
+        (configuration = options[:configuration]) and
+        File.exist?("#{derived_data}/Build/Products/#{configuration}/#{product_name}.app")
+        app_path = "#{derived_data}/Build/Products/#{configuration}/#{product_name}.app"
+    elsif (build_path = options[:build_path]) and
+        (configuration = options[:configuration]) and
+        File.exist?("#{build_path}/#{configuration}/#{product_name}.app")
+        app_path = "#{build_path}/#{configuration}/#{product_name}.app"
+    elsif (output_directory = options[:output_directory]) and
+        File.exist?("#{output_directory}/#{product_name}.app")
+        app_path = "#{output_directory}/#{product_name}.app"
+    end
+
+    lane_context[SharedValues::BUILDIT_APP_PATH] = app_path
+    return app_path
+end
+
 #### LANE CONFIGURATION ---------------------------------------------------
 
 # configit
 #
 # Configure an invocation of buildit, testit, or shipit according to the build configuration and the provided
-# command-line options. The build configuration is located at #{$buildit_config_file} and is in a dictionary
-# format which allows for matching on other options according to a given build context.
+# command-line options. Use git-lhc to resolve the configuration file according to the train and channel to derive
+# the options for the current action, and save it on the lane context.
 #
-# For more information on the configuration file format, visit [this repository](https://github.com/protonjohn/swift-piconfig).
+# For more information on the configuration file format, visit [this repository](https://github.com/protonjohn/git-lhc).
 def configit(arguments)
     if (context = lane_context[SharedValues::BUILDIT_CONFIG])
         return context
@@ -1175,18 +1221,10 @@ def configit(arguments)
         end
     end
 
-    # Hack: make sure the output directory contains the configuration in the path.
+    # output_directory is always relative to the repository.
     if (output = options[:output_directory]) 
-        if not output.include?(options[:configuration])
-            unless output.end_with? "/"
-                output += "/"
-            end
-            output += options[:configuration]
-            options[:output_directory] = output
-        end
-
-        if not output.start_with?("/")
-            options[:output_directory] = "#{$repo_path}/#{output}"
+        unless output.start_with?("/")
+            options[:output_directory] = File.expand_path("#{$repo_path}/#{output}")
         end
     end
 
