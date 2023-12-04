@@ -1270,9 +1270,9 @@ doc_lane(
 
         if options[:notarize_app]
             notarize_options = filter_args(options, :notarize)
-
-            # what's the right way to get the app here?
-            # unless (package = lane_context[SharedValues::])
+            unless notarize_options[:package]
+                notarize_options[:package] = get_app_path(options)
+            end
     
             notarize(**notarize_options)
         end
