@@ -226,6 +226,7 @@ struct Embed: ParsableCommand {
 
     mutating func run() throws {
         Internal.initialize()
+        let options = try parent.options?.get()
         let forcedVersion = forcedVersion ?? parent.forcedVersion
         var repo = try Internal.openRepo(at: parent.repo)
 
@@ -236,7 +237,7 @@ struct Embed: ParsableCommand {
             allowDirty: dryRun,
             untaggedReleaseChannel: parent.channel,
             forceLatestVersionTo: nil,
-            options: parent.options
+            options: options
         ), let latestVersion = latest.version {
             version = latestVersion
         } else {

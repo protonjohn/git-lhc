@@ -125,8 +125,8 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
         )
     }
 
-    mutating func createTag(in repo: inout Repositoryish, for release: Release) throws {
-        let tagName = (parent.options?.tagPrefix ?? "") + release.versionString
+    mutating func createTag(in repo: inout Repositoryish, for release: Release, options: Configuration.Options?) throws {
+        let tagName = (options?.tagPrefix ?? "") + release.versionString
         let branch = try repo.currentBranch() ?? repo.HEAD()
         let signature = try repo.defaultSignature
 
@@ -134,8 +134,8 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
         let commit = try repo.commit(branch.oid)
 
         var message = "release: "
-        if let train = parent.options?.train {
-            message += "\(parent.options?.trainDisplayName ?? train) "
+        if let train = options?.train {
+            message += "\(options?.trainDisplayName ?? train) "
         }
         message += release.versionString
 
@@ -172,9 +172,9 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
         }
     }
 
-    mutating func editNotes(for release: Release) async throws -> String? {
+    mutating func editNotes(for release: Release, options: Configuration.Options?) async throws -> String? {
         guard jira,
-           let fieldName = parent.options?.jiraReleaseNotesField,
+           let fieldName = options?.jiraReleaseNotesField,
            let jiraClient = Internal.jiraClient,
             case let projectIds = release.changes.values.flatMap({ $0.flatMap(\.projectIds) }),
               !projectIds.isEmpty else {
@@ -202,6 +202,7 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
 
     mutating func run() async throws {
         Internal.initialize()
+        let options = try parent.options?.get()
         let forcedVersion = forcedVersion ?? parent.forcedVersion
 
         if buildTimestamp {
@@ -213,7 +214,7 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
             allowDirty: true,
             untaggedReleaseChannel: parent.channel,
             forceLatestVersionTo: forcedVersion,
-            options: parent.options
+            options: options
         )?.adding(
             prereleaseIdentifiers: prereleaseIdentifiers,
             buildIdentifiers: buildIdentifiers
@@ -221,11 +222,11 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
             fatalError("Invariant error: no release found or created")
         }
 
-        if let notes = try await editNotes(for: release) {
+        if let notes = try await editNotes(for: release, options: options) {
             release = release.adding(notes: notes)
         }
 
-        try createTag(in: &repo, for: release)
+        try createTag(in: &repo, for: release, options: options)
     }
 }
 

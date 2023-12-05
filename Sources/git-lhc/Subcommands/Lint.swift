@@ -35,6 +35,7 @@ struct Lint: ParsableCommand, VerboseCommand {
 
     mutating func run() throws {
         Internal.initialize()
+        let options = try parent.options?.get()
         let repo = try Internal.openRepo(at: parent.repo)
         let head = try repo.currentBranch() ?? repo.HEAD()
         if let branch = head as? Branchish {
@@ -71,7 +72,7 @@ struct Lint: ParsableCommand, VerboseCommand {
         var errors: [LintingError] = []
         for commit in commits {
             do {
-                try lint(commit: commit, branch: branch)
+                try lint(commit: commit, branch: branch, options: options)
             } catch let lintingError as LintingError {
                 errors.append(lintingError)
             }
@@ -104,7 +105,7 @@ struct Lint: ParsableCommand, VerboseCommand {
         return oid
     }
 
-    mutating func lint(commit: Commitish, branch: Branchish?) throws {
+    mutating func lint(commit: Commitish, branch: Branchish?, options: Configuration.Options?) throws {
         printIfVerbose("Linting commit \(commit.oid)...")
 
         let components = commit.message
@@ -115,21 +116,21 @@ struct Lint: ParsableCommand, VerboseCommand {
             throw LintingError(commit, .missingSubject)
         }
 
-        try lint(subject: subject, of: commit)
+        try lint(subject: subject, of: commit, options: options)
 
         if components.count > 1 {
-            try lint(paragraphs: components[1...], of: commit)
+            try lint(paragraphs: components[1...], of: commit, options: options)
         }
 
         let branchName = branch?.name ?? Internal.branchName
-        try lintTrailers(of: commit, branchName: branchName)
+        try lintTrailers(of: commit, branchName: branchName, options: options)
 
         printIfVerbose("No issues found.\n")
     }
 
-    mutating func lint(subject: String, of commit: Commitish) throws {
+    mutating func lint(subject: String, of commit: Commitish, options: Configuration.Options?) throws {
         printIfVerbose("Checking commit summary...")
-        if let subjectMaxLength = parent.options?.subjectMaxLineLength,
+        if let subjectMaxLength = options?.subjectMaxLineLength,
            subject.count > subjectMaxLength {
             throw LintingError(commit, .subjectTooLong(configuredMax: subjectMaxLength))
         }
@@ -147,7 +148,7 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
 
         let category = String(categorySubstring)
-        guard let categories = parent.options?.commitCategories else {
+        guard let categories = options?.commitCategories else {
             return
         }
 
@@ -157,8 +158,8 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
     }
 
-    mutating func lint(paragraphs: ArraySlice<String>, of commit: Commitish) throws {
-        guard let bodyMaxColumns = parent.options?.bodyMaxLineLength else { return }
+    mutating func lint(paragraphs: ArraySlice<String>, of commit: Commitish, options: Configuration.Options?) throws {
+        guard let bodyMaxColumns = options?.bodyMaxLineLength else { return }
 
         printIfVerbose("Checking line lengths...")
         if paragraphs.contains(where: {
@@ -168,8 +169,8 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
     }
 
-    mutating func lintTrailers(of commit: Commitish, branchName: String?) throws {
-        guard let trailerName = parent.options?.projectIdTrailerName,
+    mutating func lintTrailers(of commit: Commitish, branchName: String?, options: Configuration.Options?) throws {
+        guard let trailerName = options?.projectIdTrailerName,
               let branchName else {
             printIfVerbose("No trailer name configured or not a branch, skipping trailer linting.")
 
@@ -177,7 +178,7 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
 
         let projectIds = branchName.components(separatedBy: "/")
-            .compactMap { ProjectID(string: $0, options: parent.options) }
+            .compactMap { ProjectID(string: $0, options: options) }
 
         printIfVerbose("Linting trailers...")
 

@@ -56,6 +56,7 @@ struct Describe: ParsableCommand {
 
     mutating func run() throws {
         Internal.initialize()
+        let options = try parent.options?.get()
 
         let repo = try Internal.openRepo(at: parent.repo)
 
@@ -66,14 +67,14 @@ struct Describe: ParsableCommand {
                 allowDirty: dryRun,
                 untaggedReleaseChannel: parent.channel,
                 forceLatestVersionTo: nil,
-                options: parent.options
+                options: options
             )
         case .latest:
             guard let release = try repo.latestRelease(
                 allowDirty: dryRun,
                 untaggedReleaseChannel: parent.channel,
                 forceLatestVersionTo: nil,
-                options: parent.options
+                options: options
             ) else {
                 releases = []
                 break
@@ -81,7 +82,7 @@ struct Describe: ParsableCommand {
 
             releases = [release]
         case let .exact(version):
-            guard let release = try repo.release(exactVersion: version, options: parent.options) else {
+            guard let release = try repo.release(exactVersion: version, options: options) else {
                 throw DescribeReleaseError.versionNotFound(version: version, train: parent.train)
             }
 

@@ -37,9 +37,10 @@ struct Find: ParsableCommand {
 
     mutating func run() throws {
         Internal.initialize()
+        let options = try parent.options?.get()
 
         // First, add the project prefix to IDs that parse as Ints, if we have one defined.
-        if let prefix = parent.options?.projectIdPrefix {
+        if let prefix = options?.projectIdPrefix {
             taskIds = taskIds.map {
                 guard Int($0) == nil else {
                     return prefix + $0
@@ -48,7 +49,7 @@ struct Find: ParsableCommand {
             }
         }
 
-        let trailerName = parent.options?.projectIdTrailerName
+        let trailerName = options?.projectIdTrailerName
         let repo = try Internal.openRepo(at: parent.repo)
 
         let taskIdSet = Set(taskIds)

@@ -64,20 +64,29 @@ struct LHC: AsyncParsableCommand {
         }()
 
         /// The parsed and ingested configuration file.
-        lazy var config: Configuration.IngestedConfig? = {
+        lazy var config: Result<Configuration.IngestedConfig, Error>? = {
             guard let config = Configuration.getConfig(repo) else {
                 self.config = nil
                 self.options = nil
                 return nil
             }
 
-            return try? config.ingest()
+            do {
+                return try .success(config.get().ingest())
+            } catch {
+                return .failure(error)
+            }
         }()
 
         /// The options generated from the configuration file with the above train and channel applied.
-        lazy var options: Configuration.Options? = {
+        lazy var options: Result<Configuration.Options, Error>? = {
             guard let config else { return nil }
-            return try? config.eval(train: train, channel: channel).options
+
+            do {
+                return try .success(config.get().eval(train: train, channel: channel).options)
+            } catch {
+                return .failure(error)
+            }
         }()
 
         /// Gets the version from CI if it is set.
@@ -86,11 +95,11 @@ struct LHC: AsyncParsableCommand {
                 return nil
             }
 
-            return Version(prefix: options?.tagPrefix, versionString: tagName)
+            return Version(prefix: try? options?.get().tagPrefix, versionString: tagName)
         }()
 
         mutating func allTrainOptions() throws -> [String?: Configuration.Options] {
-            guard let options else { return [:] }
+            guard let options = try? options?.get() else { return [:] }
             guard let train = options.train else { return [nil: options] }
             guard var trains = options.trains else { return [train: options] }
 
@@ -103,7 +112,7 @@ struct LHC: AsyncParsableCommand {
             }
 
             for train in trains {
-                result[train] = try? config?.eval(train: train, channel: channel).options
+                result[train] = try? config?.get().eval(train: train, channel: channel).options
             }
 
             return result
@@ -115,6 +124,7 @@ struct LHC: AsyncParsableCommand {
             includeCommitHashes: Bool,
             includeProjectIds: Bool
         ) throws -> StringOrData {
+            let options = try? options?.get()
             var encodedValue = releases
 
             if !includeCommitHashes || !includeProjectIds {

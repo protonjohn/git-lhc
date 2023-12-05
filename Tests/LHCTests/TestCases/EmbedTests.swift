@@ -171,9 +171,9 @@ class EmbedTests: LHCTestCase {
         let fileManager = Internal.fileManager // save FM state
 
         Configuration.getConfig = { _ in
-            try? Configuration(parsing: """
+            try? .success(.init(parsing: """
             train = test
-            """)
+            """))
         }
 
         try replaceAll()

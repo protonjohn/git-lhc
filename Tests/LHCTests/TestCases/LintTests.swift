@@ -61,13 +61,13 @@ class LintingTests: LHCTestCase {
 
     func testTrailers() throws {
         Configuration.getConfig = { _ in
-            try? .init(parsing: """
+            try? .success(.init(parsing: """
             project_id_prefix = TEST-
             project_id_trailer = Project-Id
             project_id_regexes = ["([A-Z]{2,10}-)([0-9]{2,5})", "([0-9]{3,5})"]
             commit_categories = ["feat", "fix", "test", "build", "ci"]
             lint_branch_names = commitsMustMatch
-            """)
+            """))
         }
 
         let matchingTrailerBranches: [MockBranch] = [

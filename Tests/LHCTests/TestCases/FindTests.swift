@@ -25,10 +25,10 @@ class FindVersionsTests: LHCTestCase {
     override func invokeTest() {
         let value = Configuration.getConfig
         Configuration.getConfig = { _ in
-            try? Configuration(parsing: """
+            try? .success(Configuration(parsing: """
             project_id_prefix = TEST-
             project_id_trailer = Project-Id
-            """)
+            """))
         }
 
         super.invokeTest()

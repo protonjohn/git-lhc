@@ -179,11 +179,11 @@ class DescribeReleaseTests: LHCTestCase {
     /// Tests the changelog finds versions properly when using a train/tag prefix.
     func testDescribeReleaseWithTagPrefix() throws {
         Configuration.getConfig = { _ in
-            try? .init(parsing: """
+            try? .success(.init(parsing: """
             train = test
             tag_prefix = train/
             commit_categories = ["feat", "fix", "test", "build", "ci"]
-            """)
+            """))
         }
 
         let subtests = [

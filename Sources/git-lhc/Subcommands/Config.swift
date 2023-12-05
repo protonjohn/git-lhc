@@ -52,8 +52,8 @@ struct ConfigEval: ParsableCommand {
     var defines: [Define] = []
 
     mutating func run() throws {
-        guard let config = parent.config else {
-            throw ValidationError("Error in configuration file.")
+        guard let config = try parent.config?.get() else {
+            throw ValidationError("Error fetching configuration file.")
         }
 
         guard !checkOnly else {
