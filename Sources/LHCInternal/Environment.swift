@@ -63,7 +63,7 @@ public enum LHCEnvironment: String, EnvironmentVariable {
             return nil
         }
         
-        return Internal.fileManager.traverseUpwardsUntilFinding(fileName: ".lhcconfig")
+        return Internal.fileManager.traverseUpwardsUntilFinding(fileName: ".lhc")
     }
 }
 

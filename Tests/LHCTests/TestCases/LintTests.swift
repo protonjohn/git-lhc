@@ -373,7 +373,8 @@ extension String {
                 summary: summary
             ),
             body: body,
-            trailers: trailers ?? []
+            trailers: trailers ?? [],
+            attributes: nil // Attributes are attached separately as notes
         ).description
     }
 }

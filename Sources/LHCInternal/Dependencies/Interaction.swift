@@ -104,25 +104,97 @@ extension QuietCommand {
     }
 }
 
+/// Represents an error that occurs when an external program is invoked.
+struct InvocationError: Error, CustomStringConvertible {
+    let command: String
+    let exitCode: Int32
+
+    var description: String {
+        return "Command '\(command)' exited with code \(exitCode)."
+    }
+}
+
 extension Internal {
-    public internal(set) static var spawnProcessAndWaitForTermination: ((URL, [String]) throws -> ()) = { url, arguments in
+    public internal(set) static var spawnProcessAndWaitForTermination: ((
+        URL,
+        [String],
+        [String: String],
+        FileHandle?,
+        FileHandle?,
+        FileHandle?
+    ) throws -> ()) = { url, arguments, environment, stdin, stdout, stderr in
         let task = Process()
         task.executableURL = url
         task.arguments = arguments
-        task.environment = Internal.processInfo.environment
-
-        task.standardInput = FileHandle(forReadingAtPath: "/dev/tty")
-        task.standardError = FileHandle(forWritingAtPath: "/dev/tty")
-        task.standardOutput = FileHandle(forWritingAtPath: "/dev/tty")
+        task.environment = environment
+        task.standardInput = stdin
+        task.standardOutput = stdout
+        task.standardError = stderr
 
         try task.run()
-        // Note: this is pure wizardry but is absolutely key to making spawn work properly
+        // Note: this is pure wizardry but is absolutely key to making spawn work properly. It sets the
+        // current terminal's associated process group ID equal to the child task, since `STDIN_FILENO` is
+        // equal to the TTY in use if our STDIN isn't getting piped from somewhere.
         tcsetpgrp(STDIN_FILENO, task.processIdentifier)
 
         task.waitUntilExit()
+
+        // Restore the previous value.
+        tcsetpgrp(STDIN_FILENO, Internal.processInfo.processIdentifier)
+
+        let status = task.terminationStatus
+        guard status == 0 else {
+            let command = "\(url.path()) \(arguments.joined(separator: " "))"
+            throw InvocationError(command: command, exitCode: status)
+        }
     }
 
-    public static func spawnAndWait(executableURL: URL, arguments: [String]) throws {
-        try spawnProcessAndWaitForTermination(executableURL, arguments)
+    public static func spawnAndWait(
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String] = Internal.processInfo.environment,
+        standardInput: FileHandle? = .ttyIn,
+        standardOutput: FileHandle? = .ttyOut,
+        standardError: FileHandle? = .ttyOut
+    ) throws {
+        try spawnProcessAndWaitForTermination(
+            executableURL,
+            arguments,
+            environment,
+            standardInput,
+            standardOutput,
+            standardError
+        )
+    }
+
+    public static func spawnAndWaitWithOutput(
+        command: String,
+        input: String?
+    ) throws -> Data? {
+        var inPipe: Pipe?
+        if let input {
+            inPipe = Pipe()
+            DispatchQueue.global(qos: .default).async { [inPipe] in
+                inPipe!.fileHandleForWriting.write(input)
+                try? inPipe!.fileHandleForWriting.close()
+            }
+        }
+
+        let output = Pipe()
+        let shell = Internal.processInfo.environment["SHELL"] ?? "/bin/sh"
+
+        try Internal.spawnAndWait(
+            executableURL: URL(filePath: shell),
+            arguments: [
+                "-c",
+                command
+            ],
+            standardInput: inPipe?.fileHandleForReading ?? .ttyIn,
+            standardOutput: output.fileHandleForWriting
+        )
+
+        // Close the pipe so the read doesn't block
+        try output.fileHandleForWriting.close()
+        return try output.fileHandleForReading.readToEnd()
     }
 }

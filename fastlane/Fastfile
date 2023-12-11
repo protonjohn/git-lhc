@@ -4,7 +4,9 @@
 #
 # For complete documentation please run `fastlane docs' and consult the generated README.
 
+require 'pp' # for pretty-printing the options after they've been evaluated
 require 'json' # for parsing release descriptions and the build configuration
+require 'shellwords' # for escaping strings passed to the shell
 require 'securerandom' # for generating UUIDs
 
 # Buildit configuration variables
@@ -16,8 +18,12 @@ SharedValues::BUILDIT_CONFIG = :BUILDIT_CONFIG
 SharedValues::BUILDIT_APP_PATH = :BUILDIT_APP_PATH
 # The product name.
 SharedValues::BUILDIT_PRODUCT_NAME = :BUILDIT_PRODUCT_NAME
-# The path the dmg file created by dmgbuild.
-SharedValues::DMGBUILD_OUTPUT_PATH = :DMGBUILD_OUTPUT_PATH
+# The URL used to access the Nexus resource.
+SharedValues::BUILDIT_NEXUS_UPLOAD_URL = :BUILDIT_NEXUS_UPLOAD_URL
+# The file name of the resource uploaded to Nexus.
+SharedValues::BUILDIT_NEXUS_UPLOAD_FILENAME = :BUILDIT_NEXUS_UPLOAD_FILENAME 
+# The link to the release on the Sentry instance.
+SharedValues::BUILDIT_SENTRY_RELEASE_URL = :BUILDIT_SENTRY_RELEASE_URL 
 
 # Fastlane puts us in $repo_path/fastlane, so we need a path to the repository itself.
 $repo_path = File.expand_path("#{Dir.pwd}/..")
@@ -26,6 +32,8 @@ $repo_path = File.expand_path("#{Dir.pwd}/..")
 $created_keychain = false
 # Gets set whenever a lane has created a simulator. Used for stopping it afterwards.
 $created_simulator = false
+# Gets set whenever a temporary work directory is created. Used for deleting it afterwards.
+$created_tmp_workdir = nil
 
 # This is the only CI variable that is explicitly referenced by this file. Clients should reference any other CI
 # variables they need inside their build configuration.
@@ -175,6 +183,7 @@ $arg_contexts = {
     :include => [
       :app_identifier,
       :app_review_attachment_file,
+      :auto_release_date,
       :automatic_release,
       :build_number,
       :phased_release,
@@ -182,15 +191,18 @@ $arg_contexts = {
       :username,
     ],
     :map => {
+      :version_number => :app_version,
       :deliver_force => :force,
       :deliver_ipa_path => :ipa,
       :deliver_metadata_path => :metadata_path,
       :deliver_pkg_path => :pkg,
       :deliver_price_tier => :price_tier,
+      :deliver_reject_if_possible => :reject_if_possible,
       :deliver_screenshots_path => :screenshots_path,
       :deliver_skip_binary_upload => :skip_binary_upload,
       :deliver_skip_screenshots => :skip_screenshots,
       :deliver_submission_information => :submission_information,
+      :deliver_submit_for_review => :submit_for_review,
     }
   },
   :match => {
@@ -214,8 +226,14 @@ $arg_contexts = {
       :team_name,
     ],
     :map => {
+      :testflight_ipa => :ipa,
+      :testflight_pkg => :pkg,
       :testflight_distribute_external => :distribute_external,
+      :testflight_localized_app_info => :localized_app_info,
       :testflight_groups => :groups,
+      :testflight_skip_waiting_for_build_processing => :skip_waiting_for_build_processing,
+      :testflight_notify_external_testers => :notify_external_testers,
+      :platform => :app_platform,
     }
   },
   :nexus_upload => {
@@ -223,7 +241,8 @@ $arg_contexts = {
       :nexus_group_id => :repo_group_id,
       :nexus_id => :repo_id,
       :nexus_project_name => :repo_project_name,
-      :nexus_project_version => :repo_project_version,
+      :build_number => :repo_project_version,
+      :nexus_file => :file,
     }
   },
   :notarize => {
@@ -237,8 +256,8 @@ $arg_contexts = {
     :map => {
       :app_identifier => :bundle_id,
       :notarization_package => :package,
-      :notarization_verbose => :verbose,
-      :print_notarization_log => :print_log,
+      :notarize_verbose => :verbose,
+      :notarize_print_log => :print_log,
     },
   },
   :sentry_upload_dif => {
@@ -305,15 +324,16 @@ $arg_docs = {
     :slack => "Used for sending updates to slack channels.",
     :upload_to_testflight => "Used for uploading a binary to testflight, including the latest changelog information.",
   },
+  :arguments => {
   # Documentation for each of the arguments listed above. Many of these are taken from Fastlane's official documentation.
   # Arguments which have been mapped are listed under their alias names, e.g., build_clean instead of clean.
-  :arguments => {
     :analyze_build_time => "Analyze the project build time and store the output in 'culprits.txt' file",
     :app_identifier => "The bundle identifier representing the main app bundle.",
     :app_review_attachment_file => "Metadata: Path to the app review attachment file",
     :archive_path => "The path to the created archive",
     :asc_provider => "Provider short name for accounts associated with multiple providers.",
-    :automatic_release => "Should the app be automatically released once it's approved? (Can not be used together with auto_release_date)",
+    :auto_release_date => "Date in milliseconds for automatically releasing on pending approval (Can not be used together with `automatic_release`).",
+    :automatic_release => "Should the app be automatically released once it's approved? (Can not be used together with `auto_release_date`)",
     :build_app_xcodeproj => "The path to the Xcode project. This is namespaced separately from `xcodeproj` to avoid causing build difficulties with projects that have a mix of traditional Xcode targets and Swift packages.",
     :build_app_xcworkspace => "The path to the Xcode workspace. This is namespaced separately from `xcworkspace` to avoid causing build difficulties with projects that have a mix of traditional Xcode targets and Swift packages.",
     :build_clean => "Should the project be cleaned before building it?",
@@ -328,10 +348,12 @@ $arg_docs = {
     :deliver_metadata_path => "Path to the folder containing the deliver metadata files.",
     :deliver_pkg_path => "Path to your PKG file.",
     :deliver_price_tier => "The price tier of this application.",
+    :deliver_reject_if_possible  => "Rejects the previously submitted build if it's in a state where it's possible.",
     :deliver_screenshots_path => "Path to the folder containing the deliver screenshot files.",
     :deliver_skip_binary_upload => "Skip uploading an ipa or pkg to App Store Connect.",
     :deliver_skip_screenshots => "Don't upload app screenshots.",
     :deliver_submission_information => "Extra information for the submission (e.g. compliance specifications, IDFA settings)",
+    :deliver_submit_for_review => "Submit the new version for Review after uploading everything.",
     :destination => "Use a custom destination for building the app.",
     :devices  => "Array of devices to run the tests on (e.g. ['iPhone 6', 'iPad Air', 'iPhone SE (2nd generation) (14.5)']).",
     :disable_package_automatic_updates => "Prevents packages from automatically being resolved to versions other than those recorded in the Package.resolved file.",
@@ -387,6 +409,7 @@ $arg_docs = {
     :sentry_symbol_maps => "Optional path to BCSymbolMap files which are used to resolve hidden symbols in dSYM files downloaded from App Store Connect. This requires the dsymutil tool to be available.",
     :sentry_wait => "Wait for the server to fully process uploaded files. Errors can only be displayed if --wait is specified, but this will significantly slow down the upload process.",
     :should_zip_build_products => "Should zip the derived data build products and place in output path?",
+    :simulator_device_type => "The last part of the full bundle identifier of the corresponding simulator runtime, i.e., `com.apple.CoreSimulator.SimDeviceType.$device_type`.",
     :skip_archive => "After building, don't archive, effectively not including -archivePath param.",
     :skip_build_archive => "Export ipa from previously built xcarchive. Uses archive_path as source.",
     :skip_codesigning => "Build without codesigning.",
@@ -407,6 +430,11 @@ $arg_docs = {
     :test_report_format => "The report format(s) to use when running tests.",
     :test_without_building => "Test without building, requires a derived data path.",
     :testflight_distribute_external => "Should the build be distributed to external testers? If set to true, use of `groups` option is required.",
+    :testflight_ipa => "Path to the ipa file to upload.",
+    :testflight_localized_app_info => "Localized beta app test info for description, feedback email, marketing url, and privacy policy.",
+    :testflight_notify_external_testers => "Should notify external testers? (Not setting a value will use App Store Connect's default, which is to notify.)",
+    :testflight_pkg => "Path to your pkg file.",
+    :testflight_skip_waiting_for_build_processing => "If set to `true`, the distribute_external option won't work and no build will be distributed to testers.",
     :testplan => "The testplan associated with the scheme that should be used for testing.",
     :use_notarytool => "Whether to `xcrun notarytool` or `xcrun altool`.",
     :use_system_scm => "Lets xcodebuild use system's scm configuration",
@@ -426,26 +454,43 @@ $arg_docs = {
   # Arguments which don't necessarily apply to any of the contexts listed above, but are used globally, for instance,
   # to determine the value of other arguments or provide default values.
   :global_arguments => {
-    :build_commit_cache => "An optional path to a build cache location indexed by commit hash.",
-    :build_commit_cache_ttl => "How long each commit should stay indexed in the cache directory.",
+    :architecture => "Which architecture to build for. Defaults to `arm64-x86_64.` This is only used for finding `.xctestrun` files; you probably don't want to set this.",
+    :require_binaries => "An optional list of commands to require in order to build, for example, `git-lfs`, `go`, etc.",
     :channel => "The release channel to invoke the lane for, for instance, alpha, beta, or production.",
+    :build_products_zip => "The path to the built products zip file, used for running tests without having to build them.",
     :code_coverage => "Force enablement of code coverage reporting.",
+    :create_gitlab_release => "If set to true, and running in a GitLab CI environment, creates a release on Gitlab. Note that the `release-cli` tool must be installed.",
+    :gitlab_project_url => "Used with `create_gitlab_release`. This optional value will result in commit links for each change in the release description.",
+    :dmg_config => "The path, relative to the repository root, for a configuration file for the `dmgbuild` utility. If set, packages the application in a disk image.",
+    :dmg_path => "The path to the output dmg file.",
+    :dmg_volume_name => "The name to display when the dmg is mounted. Defaults to `product_name`, or the main target name, if not specified.",
+    :notarize_app => "If set to `true`, notarizes the application according to the options provided.",
+    :reject_uncommitted_changes => "If set to `true`, do not start the lane unless the repository directory is clean.",
+    :simulator_name => "The name to assign to the simulator. Defaults to a random UUID.",
+    :testflight_upload => "If set to `true`, uploads the `.ipa` to testflight according to the options provided. (By default, looks in `output_directory` for the `.ipa` file.)",
+    :cleanup_tmpdir => "A list of directories to clean up every `cleanup_tmpdir_ttl`.",
+    :cleanup_tmpdir_ttl => "How long items in `cleanup_tmpdir` have to live. Value should be a number followed by one of `h`, `m`, or `s`.",
     :testplans_dir => "A directory for where to find test plans mentioned by name.",
     :train => "The build train to invoke the lane for.",
   },
   # Environment variables which are used to store any secrets which we'd rather not commit to a repository
   # or leave hanging around in build configurations.
   :env_vars => {
-    :AL_NEXUS_PASSWORD => "The password used for uploading artifacts to Nexus.",
+    :APPCAST_ED_KEY => "The base64-encoded key used for signing Sparkle appcast update items.",
     :APPSTORE_API_KEY => "The API key used to interface with App Store Connect.",
     :APPSTORE_API_KEY_ID => "The ID for the app store API key used to interface with App Store Connect.",
     :APPSTORE_API_KEY_ISSUER => "The issuer for the API key used to interface with App Store Connect.",
+    :FL_NEXUS_ENDPOINT => "Nexus endpoint e.g. http://nexus:8081",
+    :FL_NEXUS_PASSWORD => "The password used for uploading artifacts to Nexus.",
+    :FL_NEXUS_USERNAME => "Nexus username",
     :JIRA_API_TOKEN => "The API token used for interfacing with Jira.",
+    :JIRA_BASE_URL => "The base URL for the jira instance in use.",
     :MATCH_GIT_URL => "The git repository containing the signing certificates.",
     :MATCH_KEYCHAIN_PASSWORD => "The password to the keychain containing signing certificates.",
     :MATCH_PASSWORD => "The password to the match storage container.",
     :SENTRY_API_KEY => "The API key used for interfacing with sentry. Do not use with `SENTRY_AUTH_TOKEN`.",
     :SENTRY_AUTH_TOKEN => "The auth token used for interfacing with sentry. Do not use with `SENTRY_API_KEY`.",
+    :SENTRY_URL => "The URL for the Sentry instance.",
     :SLACK_WEBHOOK_URL => "The incoming webhook URL to use for Slack notifications.",
   }
 }
@@ -461,13 +506,28 @@ def get_or_die(options, sym)
 end
 
 def get_train_secret(train, env_var)
-    train_env_var = env_var + "_" + train.to_s.upcase
+  train_env_var = env_var + "_" + train.to_s.upcase.gsub("-", "_")
     return ENV.fetch(train_env_var, ENV[env_var])
 end
 
 def command_exist?(name)
     `which #{name}`
     return $?.success?
+end
+
+# Given a list of path arguments, resolve them relative to the home directory
+# or repository root if necessary.
+def normalize_paths(options, pathargs)
+    pathargs.each do |patharg|
+        next unless (path = options[patharg])
+        if path.start_with?("~/")
+            path = File.expand_path(path)
+        end
+        unless path.start_with?("/")
+            path = File.expand_path("#{$repo_path}/#{path}")
+        end
+        options[patharg] = path
+    end
 end
 
 def filter_args(options, argskey)
@@ -496,6 +556,10 @@ def filter_args(options, argskey)
             end
         end
     end
+
+    puts "Arguments for #{argskey}:"
+    pp result
+
     return result
 end
 
@@ -570,10 +634,13 @@ def env_var_docs(lane, env_vars)
     return table
 end
 
+# This function creates documentation from the arguments, and then invokes the lane. The values provided to this
+# function, other than the closure itself, have no bearing on the lane's functionality. They are only there for
+# generating documentation.
 def doc_lane(options)
     name = options[:name]
-    summary = options[:summary].each_line.map(&:strip).join("\n")
-    examples = options[:examples].each_line.map(&:strip).join("\n")
+    summary = options[:summary]
+    examples = options[:examples]
     arguments = options[:arguments]
     contexts = options[:contexts]
     env_vars = options[:env_vars]
@@ -608,22 +675,19 @@ def doc_lane(options)
 end
 
 # Delete build folders older than the configured time interval.
-def cleanup_build_commit_cache(options)
-    build_commit_cache = get_or_die(options, :build_commit_cache_path)
+def cleanup_tmpdir(options)
+    tmpdir = get_or_die(options, :cleanup_tmpdir)
+    ttl = get_or_die(options, :cleanup_tmpdir_ttl)
 
-    if not File.directory?(build_commit_cache)
-        puts "Build commit cache directory does not exist: #{build_commit_cache}"
+    if not File.directory?(tmpdir)
+        puts "Skipping path which is not a directory (or does not exist): #{tmpdir}"
         return
     end
 
-    unless (build_commit_cache_ttl = options[:build_commit_cache_ttl])
-        puts "Not cleaning commit cache, :build_commit_cache_ttl not defined"
-        return
-    end
-
-    cmd_find = "find #{build_commit_cache}* -type d -maxdepth 0 -ctime +#{build_commit_cache_ttl}"
+    cmd_find = "find #{tmpdir}/* -type d -maxdepth 0 -ctime +#{ttl}"
     cmd_delete = "xargs rm -rfv"
-    puts "Cleaning out derived data..."
+
+    puts "Cleaning out temporary directory #{tmpdir}..."
     puts `#{cmd_find} | #{cmd_delete}`
 end
 
@@ -770,7 +834,7 @@ def set_version(options)
     end
 end
 
-def version_eval(arguments)
+def eval_config(arguments)
     result = {}
 
     unless arguments.key?(:channel)
@@ -809,9 +873,19 @@ def version_eval(arguments)
         end
     end
 
-    # JSON gets confused and prefixes all symbols with ":", which is not what we want.
-    arguments.transform_keys!(&:to_s)
+    # `git-lhc` will define the commit shas for each commit in the release, but they're organized by category, and
+    # not sorted by date, so just define it explicitly here.
+    arguments[:head_commit_sha] = `git rev-parse HEAD`
     
+    # If the tag contains a trailer like X-Progressive-Rollout: true, include it in the defines when evaluating the
+    # build configuration.
+    if (trailers = release["tag_trailers"])
+        trailers.each do |key, value|
+            define_name = "_trailer_#{key.gsub("-", "_")}"
+            arguments[define_name] = value
+        end
+    end
+
     defines = ""
     arguments.each do |argument, value|
         # We pass train and channel explicitly further down below.
@@ -843,10 +917,11 @@ def version_eval(arguments)
             end
         end
 
+        result[:changes] = changes
         result[:project_ids] = project_ids
     end
 
-    if (changelog = release["changelog"]) and not arguments[:changelog]
+    if (changelog = release["changelog"]) and not arguments["changelog"]
         result[:changelog] = changelog
     end
 
@@ -923,23 +998,24 @@ end
 
 # Xcode generates the name of xctestrun file by unknown rules. So we check all possible variants 
 # in order to find what we need.
-def find_xctestrun_filename(path, scheme, testplan, destination, architecture)
+def find_xctestrun_filename(path, scheme, testplan, sdk, architecture)
     names = [
-      scheme + "_" + scheme + "_" + destination + ".xctestrun",
-      scheme + "_" + destination + ".xctestrun",
+        scheme + "_" + scheme + "_" + sdk + ".xctestrun",
+        scheme + "_" + sdk + ".xctestrun",
     ]
 
     if testplan != nil
-        full = scheme + "_" + testplan + "_" + destination + "-" + architecture + ".xctestrun"
+        full = scheme + "_" + testplan + "_" + sdk + "-" + architecture + ".xctestrun"
         names << full
     end
 
     names.each do |name|
-        fullPath = path + name
-        if File.exist?(fullPath)
-            puts "Found xctestrun file at " + fullPath
-            return fullPath
-        end
+        fullPath = path + "/#{name}"
+        puts "Looking at #{fullPath}..."
+        next unless File.exist?(fullPath)
+
+        puts "Found xctestrun file at " + fullPath
+        return fullPath
     end 
     return nil
 end
@@ -970,7 +1046,6 @@ def create_dmg(options)
     dmg_config = "#{$repo_path}/" + get_or_die(options, :dmg_config)
     # Put the dmg in the same directory as the app.
     output_directory = get_or_die(options, :output_directory)
-    build_path = get_or_die(options, :build_path)
 
     # We need to know the product name (i.e., Product.app), so look it up using the app_identifier and target_names.
     target_names = get_or_die(options, :targets)
@@ -986,19 +1061,97 @@ def create_dmg(options)
     volume_name = options.fetch(:dmg_volume_name, product_name)
 
     # dmgbuild has a bug outputting files in directories other than $pwd, so create it here and then move it afterwards.
-    dmg_path = "#{product_name}-#{build}.dmg"
+    pwd_dmg_path = "#{product_name}-#{build}.dmg"
 
-    puts "Creating disk image containing #{product_name}.app at #{dmg_path} using #{dmg_config}, mountable as #{volume_name}..."
-    puts `dmgbuild -Dapp=#{app_path} -Drepo=#{$repo_path} -s #{dmg_config} "#{volume_name}" "#{dmg_path}"`
+    puts "Creating disk image containing #{product_name}.app at #{pwd_dmg_path} using #{dmg_config}, mountable as #{volume_name}..."
+    puts `dmgbuild -Dapp=#{app_path} -Drepo=#{$repo_path} -s #{dmg_config} "#{volume_name}" "#{pwd_dmg_path}"`
 
+    dmg_path = options.fetch(:dmg_path, pwd_dmg_path)
     copy_artifacts(
       keep_original: false,
-      target_path: output_directory,
-      artifacts: ["fastlane/#{dmg_path}"],
+      target_path: dmg_path,
+      artifacts: ["fastlane/#{pwd_dmg_path}"],
       fail_on_missing: true
     )
+end
 
-    lane_context[SharedValues::DMGBUILD_OUTPUT_PATH] = "#{output_directory}/#{dmg_path}"
+def create_appcast(options)
+    require "digest" # for generating sha256 digests in the update file
+    require "ed25519" # for signing download artifacts
+    require "commonmarker" # for generating release description from markdown
+
+    die "The command `sign_update` was not found. Please make sure it's installed." unless command_exist? "sign_update"
+
+    dmg = get_or_die(options, :dmg_path)
+    url = get_or_die(options, :appcast_nexus_path)
+    host = get_or_die(options, :appcast_download_host)
+    path = get_or_die(options, :appcast_download_path)
+
+    identifier = options.fetch(:appcast_replace_identifier, "<!-- >8 Next release >8 -->") # should be an XML comment
+    publish_date = Time.now.strftime("%a, %d %b %Y %H:%M:%S %z")
+    # use :UNSAFE to allow raw HTML and unsafe links from the changelog body.
+    dmg_contents = File.read(dmg)
+    sha256_digest = Digest::SHA256.hexdigest(dmg_contents)
+    download_url = "https://#{host}/#{path}"
+
+    ed_key = get_train_secret(options[:train], "APPCAST_ED_KEY")
+    # looks like 'sparkle:edSignature="..." length="12345"'
+    ed_signature = `echo "#{ed_key}" | sign_update -f - #{dmg}`
+
+    rendered_html = CommonMarker.render_html(<<~MARKDOWN, :UNSAFE)
+      ## #{options[:build_version]}
+      #{options[:changelog]}
+      MARKDOWN
+
+    nodes = <<~XML
+      #{identifier}
+      <title>Version #{options[:build_number]}</title>
+      <sparkle:version>#{options[:build_number]}</sparkle:version>
+      <sparkle:shortVersionString>#{options[:build_number]}</sparkle:shortVersionString>
+      <pubDate>#{publish_date}</pubDate>
+      <description>
+          <![CDATA[
+              <!DOCTYPE html>
+              <body>
+              #{rendered_html}
+              </body>
+              </html>
+          ]]>
+      </description>
+      XML
+
+    if (min_sv = options[:appcast_minimum_system_version])
+        nodes << "\n<sparkle:minimumSystemVersion>#{min_sv}</sparkle:minimumSystemVersion>"
+    end
+    if (max_sv = options[:appcast_maximum_system_version])
+        nodes << "\n<sparkle:maximumSystemVersion>#{max_sv}</sparkle:maximumSystemVersion>"
+    end
+    if (channel = options[:appcast_channel])
+        nodes << "\n<sparkle:channel>#{channel}</sparkle:channel>"
+    end
+    if (options[:appcast_critical])
+        nodes << "\n<sparkle:criticalUpdate></sparkle:criticalUpdate>"
+    end
+    if (interval = options[:appcast_rollout_interval])
+        nodes << "\n<sparkle:phasedRolloutInterval>#{interval}</sparkle:phasedRolloutInterval>"
+    end
+
+    appcast = <<~APPCAST
+       <item>
+            #{nodes}
+            <enclosure url="#{download_url}"
+                       hash="#{sha256_digest}"
+                       #{ed_signature}
+                       type="application/x-apple-diskimage" />
+      </item> 
+      APPCAST
+end
+
+# This is a clone of the nexus_upload lane, except it allows for some values to be optional -
+# to allow for appcast xml, which doesn't need a version.
+def upload_to_nexus(options)
+    curl = "curl "
+
 end
 
 def defaults_write(namespace, key, value)
@@ -1042,6 +1195,19 @@ def stop_simulator_if_needed(options)
     puts "Stopping simulator #{simulator_name}..."
     result = `xcrun simctl delete "#{simulator_name}"`
     die "Unable to stop simulator: #{result}" unless $?.success?
+end
+
+def create_tmp_workdir()
+    unless $created_tmp_workdir
+        $created_tmp_workdir = `mktemp -d`.strip
+        die "Couldn't create temporary work directory." unless $?.success?
+    end
+    return $created_tmp_workdir
+end
+
+def delete_tmp_workdir_if_needed()
+    return unless $created_tmp_workdir
+    FileUtils.rm_rf $created_tmp_workdir
 end
 
 def set_plist_keys_helper(configuration, xcodeproj, project_dir, target_map, action, plist_entries)
@@ -1129,6 +1295,11 @@ def set_plist_keys(options)
     end
 end
 
+# Depending on the situation, the app can be in any number of different places. In stages such as
+# notarizing and creating .dmgs, we want to be able to find the app no matter where it might be.
+#
+# Note: the result is currently cached in the `lane_context`. New code should pay attention to this if it involves
+# moving the app bundle (or dSYMs) around.
 def get_app_path(options)
     if (app_path = lane_context[SharedValues::BUILDIT_APP_PATH])
         return app_path
@@ -1136,38 +1307,136 @@ def get_app_path(options)
 
     app_path = nil
     product_name = get_product_name(options)
-    if (archive = lane_context[SharedValues::XCODEBUILD_ARCHIVE]) and
+    # First, look in the output directory.
+    if (output_directory = options[:output_directory]) and
+        File.exist?("#{output_directory}/#{product_name}.app")
+        app_path = "#{output_directory}/#{product_name}.app"
+    # Next, see if build_app has set an archive path.
+    elsif (archive = lane_context[SharedValues::XCODEBUILD_ARCHIVE]) and
         File.exist?("#{archive}/Products/Applications/#{product_name}.app")
-
+        app_path = "#{archive}/Products/Applications/#{product_name}.app"
+    # Next, look in derived data.
     elsif (derived_data = options[:derived_data_path]) and
         (configuration = options[:configuration]) and
         File.exist?("#{derived_data}/Build/Products/#{configuration}/#{product_name}.app")
         app_path = "#{derived_data}/Build/Products/#{configuration}/#{product_name}.app"
+    # Finally, look in the build path.
     elsif (build_path = options[:build_path]) and
         (configuration = options[:configuration]) and
         File.exist?("#{build_path}/#{configuration}/#{product_name}.app")
         app_path = "#{build_path}/#{configuration}/#{product_name}.app"
-    elsif (output_directory = options[:output_directory]) and
-        File.exist?("#{output_directory}/#{product_name}.app")
-        app_path = "#{output_directory}/#{product_name}.app"
     end
 
     lane_context[SharedValues::BUILDIT_APP_PATH] = app_path
     return app_path
 end
 
-#### LANE CONFIGURATION ---------------------------------------------------
+# Create a new release on Gitlab.
+def gitlab_release(options)
+    die "The command `release-cli` was not found. Please make sure it is installed." unless command_exist? "release-cli"
 
-# configit
-#
-# Configure an invocation of buildit, testit, or shipit according to the build configuration and the provided
-# command-line options. Use git-lhc to resolve the configuration file according to the train and channel to derive
-# the options for the current action, and save it on the lane context.
-#
-# For more information on the configuration file format, visit [this repository](https://github.com/protonjohn/git-lhc).
-def configit(arguments)
+    train_name = options[:human_train] || options[:train]
+    build_number = options[:build_number]
+    release_name = "#{train_name} #{build_number}"
+
+    release_description = get_or_die(options, :changelog)
+    if (changes = options[:changes]) and
+        (project_url = options[:gitlab_project_url])
+
+        release_description += "\n"
+        changes.each do |category, changeList|
+            release_description += "# #{category}:\n"
+            changeList.each do |changeDict|
+                next unless (summary = changeDict["summary"])
+                release_description += "- "
+
+                if project_url and (hash = changeDict["commitHash"])
+                    release_description += "[#{hash[0,8]}](#{project_url}/-/commit/#{hash}) "
+                end
+                
+                release_description += summary
+
+                if (project_ids = changeDict["projectIds"]) and
+                    (jira_url = get_train_secret(options[:train], "JIRA_BASE_URL"))
+                    project_ids.each do |project_id|
+                        release_description += " ([#{project_id}](#{jira_url}/browse/#{project_id}))"
+                    end
+                end
+
+                release_description += "\n"
+            end
+            next unless (change_ids = changeDict["projectIds"])
+            project_ids |= change_ids.uniq
+        end
+    end
+
+    if (tag_name = ENV["CI_TAG_NAME"])
+        tag_args = "--tag-name #{tag_name}"
+    else
+        tag_name = options[:build_number]
+        tag_args = "--tag-name #{tag_name} --ref #{options[:head_commit_sha]}"
+    end
+
+    asset_args = ""
+    if (nexus_link = lane_context[SharedValues::BUILDIT_NEXUS_UPLOAD_URL])
+        filename = lane_context[SharedValues::BUILDIT_NEXUS_UPLOAD_FILENAME]
+        asset_args << "--assets-link '{ \"name\": \"#{filename}\", \"url\": \"#{nexus_link}\" }' "
+    end
+    if (sentry_link = lane_context[SharedValues::BUILDIT_SENTRY_RELEASE_URL])
+        asset_args << "--assets-link '{ \"name\": \"Sentry: #{train_name} #{build_number}", \"url\": \"#{sentry_link}\" }' "
+    end
+
+    `release-cli create \
+        --name "#{release_name.shellescape}" \
+        --description "#{release_description.shellescape}" \
+        #{tag_args} \
+        #{asset_args}`
+end
+
+#### LANE CONFIGURATION ---------------------------------------------------
+doc_lane(
+    name: :configit,
+    summary: <<~DOC,
+      `configit` evaluates `.lhc` to determine the options for the different lanes available in this project.
+
+      It requires the following variables when invoked:
+
+      * `train`
+      * `channel`
+
+      It defines the following variables when evaluating the file:
+
+      * `train`
+      * `channel`
+      * `stage` (the name of the lane being invoked, i.e., `buildit`, `testit`, `shipit`)
+      * `build_number` (the full version number)
+      * `version_number` (just the major, minor, and patch components)
+      * `head_commit_sha`, the full commit hash of HEAD. (Equivalent to `git rev-parse HEAD`.)
+      * Any environment variable beginning with `CI_`, `LHC_`, or `ATLAS_`.
+
+      Any additional command line arguments provided will also be defined when evaluating the file. The result of
+      the evaluation must define the following values in return:
+
+      * `configuration`, which should correspond to one of the available build configurations in your project
+
+      Any other arguments can vary depending on the lane being invoked and your setup.
+
+      This lane, when invoked on its own, doesn't do anything other than print the result of the evaluation. It can be
+      useful if you're just getting started and want to experiment.
+      DOC
+      examples: <<~DOC,
+      $ fastlane configit train:example channel:alpha
+      DOC
+      arguments: [
+          :channel,
+          :train,
+          :require_binaries,
+      ],
+      contexts: [],
+      env_vars: []
+) do |arguments|
     if (context = lane_context[SharedValues::BUILDIT_CONFIG])
-        return context
+        return
     end
 
     lane_context[SharedValues::BUILDIT_ARGS] = arguments
@@ -1178,55 +1447,45 @@ def configit(arguments)
 
     arguments[:stage] = lane unless (arguments.include?(:stage))
 
+    if (required_binaries = options[:require_binaries])
+        required_binaries.each do |binary|
+            die "The command `#{binary}` was not found. Please make sure it is installed." unless command_exist? binary
+        end
+    end
+
     puts "Bootstrapping release tools..."
     mint_bootstrap()
 
-    puts "Getting release version..."
-    options = version_eval(arguments)
+    puts "Determining version and evaluating build configuration..."
+    options = eval_config(arguments)
 
-    die "Unable to determine value for configuration." unless options[:configuration]
+    die "The result of the evaluation did not define `configuration`." unless options[:configuration]
 
-    if options[:reject_uncommitted_changes]
-        ensure_git_status_clean(
-            show_uncommitted_changes: true,
-            show_diff: true
-        )
-    end
+    where = options[:CI] ? "CI" : "manual"
+    puts "This is a #{where} build for #{options[train]}, version #{options[:build_number]}."
 
-    # Detect/set extra options for CI-specific features.
-    if options[:CI]
-        puts "Running #{options[:channel]} CI build for #{options[:train]}, version #{options[:build_number]}."
+    # Resolve paths either relative to the repository root or against the home directory if needed.
+    normalize_paths(options, [
+        :build_path,
+        :build_products_zip,
+        :buildlog_dir,
+        :cleanup_tmpdir,
+        :deliver_ipa_path,
+        :deliver_metadata_path,
+        :deliver_pkg_path,
+        :deliver_screenshots_path,
+        :derived_data_path,
+        :dmg_config,
+        :dmg_path,
+        :nexus_file,
+        :output_directory,
+        :sentry_derived_data_path,
+        :testflight_ipa,
+        :testflight_pkg,
+    ])
 
-        # Feature: "Build Commit Cache"
-        # If the :build_commit_cache_path option is set, this option will set build paths for artifacts, indexed by commit hash.
-        if (build_commit_cache = options[:build_commit_cache_path])
-            unless build_commit_cache.start_with?("/")
-                build_commit_cache = File.expand_path(build_commit_cache)
-                options[:build_commit_cache_path] = build_commit_cache
-            end
-
-            build_cache_path = build_commit_cache + "/BuildCaches/" + `git rev-parse --short=8 HEAD`.strip
-
-            unless options[:derived_data_path]
-                options[:derived_data_path] = build_cache_path + "/DerivedData"
-            end
-            unless options[:build_path]
-                options[:build_path] = build_cache_path + "/Build"
-            end
-            unless options[:buildlog_dir]
-                options[:buildlog_dir] = build_cache_path + "/BuildLog"
-            end
-
-            cleanup_build_commit_cache(options)
-        end
-    end
-
-    # output_directory is always relative to the repository.
-    if (output = options[:output_directory]) 
-        unless output.start_with?("/")
-            options[:output_directory] = File.expand_path("#{$repo_path}/#{output}")
-        end
-    end
+    puts "Configured options:"
+    pp options
 
     lane_context[:BUILDIT_CONFIG] = options
 end
@@ -1237,16 +1496,23 @@ end
 
 doc_lane(
     name: :buildit,
-    summary: "Build a product according to the build configuration and the provided command-line options.",
-    examples: "
+    summary: <<~DOC,
+      Build a product according to the build configuration and the provided command-line options, as evaluated by the
+      `configit` lane.
+      DOC
+    examples: <<~DOC,
       $ fastlane buildit train:mac
       $ fastlane buildit train:ios swift_package_cache_path:/Applications/Developer/CachedPackages
-      ",
+      DOC
     arguments: [
       :train,
       :channel,
-      :build_commit_cache,
-      :build_commit_cache_ttl,
+      :cleanup_tmpdir,
+      :cleanup_tmpdir_ttl,
+      :notarize_app,
+      :dmg_config,
+      :dmg_volume_name,
+      :reject_uncommitted_changes,
     ],
     contexts: [:match, :build_app, :notarize],
     env_vars: [
@@ -1258,7 +1524,15 @@ doc_lane(
       :APPSTORE_API_KEY_ISSUER,
     ]
 ) do |arguments|
-    options = configit(arguments)
+    configit(arguments)
+    options = lane_context[SharedValues::BUILDIT_CONFIG]
+
+    if options[:reject_uncommitted_changes]
+        ensure_git_status_clean(
+            show_uncommitted_changes: true,
+            show_diff: true
+        )
+    end
 
     begin
         setup_codesigning(options)
@@ -1292,27 +1566,33 @@ doc_lane(
             )
         end
     end
+
+    if options[:cleanup_tmpdir]
+        cleanup_tmpdir(options)
+    end
 end
 
 ### TESTING
 
 doc_lane(
     name: :testit,
-    summary: "
-      Test a product according to the build configuration and the provided command-line options.
+    summary: <<~DOC,
+      Test a product according to the configuration and the provided command-line options, as evaluated by `configit`.
       Supports either building a testplan and running it directly, or running a testplan from an already-existing
       built products zip file.
-      ",
-    examples: "
+      DOC
+    examples: <<~DOC,
       $ fastlane testit train:ios build_for_testing:true testplan:ProtonVPN-iOS-Unit-All
-      $ fastlane testit train:mac test_without_building:true built_products_zip:test_output/BuiltProducts.zip testplan:ProtonVPN-macOS-Unit-All
-      ",
+      $ fastlane testit train:mac test_without_building:true build_products_zip:test_output/BuiltProducts.zip testplan:ProtonVPN-macOS-Unit-All
+      DOC
     arguments: [
+      :architecture,
+      :build_products_zip,
       :train,
       :channel,
       :code_coverage,
-      :build_commit_cache,
-      :build_commit_cache_ttl,
+      :cleanup_tmpdir,
+      :cleanup_tmpdir_ttl,
     ],
     contexts: [:match, :run_tests],
     env_vars: [
@@ -1325,38 +1605,50 @@ doc_lane(
       :SLACK_WEBHOOK_URL,
     ]
 ) do |arguments|
-    options = configit(arguments)
-
-    if options[:test_without_building]
-        # Test bundle caching: testit understands the build_products_zip argument, and if these two are both passed,
-        # we look in the products for an xctestrun file which matches the passed scheme, destination, and architecture.
-        unless (build_products_zip = lane_context.fetch(
-            SharedValues::SCAN_ZIP_BUILT_PRODUCTS_PATH,
-            options[:built_products_zip]
-        ))
-            die "test_without_building supplied in options, but built_products_zip was not specified."
-        end
-        scheme = get_or_die(options, :scheme)
-        testplan = get_or_die(options, :testplan)
-
-        architecture = options.fetch(:architecture, "arm64-x86_64")
-
-        temp_dir = `mktemp -d` + "/BuildProducts"
-        FileUtils.mkdir_p temp_dir
-
-        puts "Unzipping build products #{build_products_zip} into #{temp_dir}..."
-        `unzip #{build_products_zip} -d #{temp_dir}`
-
-        # Find xctestrun file. XCode generates files with different names, so a little bit of logic is required here
-        unless (xctestrun = find_xctestrun_filename(temp_dir, scheme, testplan, destination, architecture))
-            die "Can't find xctestrun file in #{temp_dir}"
-        end
-
-        options[:xctestrun] = xctestrun
-    end
+    configit(arguments)
+    options = lane_context[SharedValues::BUILDIT_CONFIG]
 
     begin
-        unless options[:test_without_building]
+        if options[:test_without_building]
+            # Test bundle caching: testit understands the build_products_zip argument, and if these two are both passed,
+            # we look in the products for an xctestrun file which matches the passed scheme, destination, and architecture.
+            unless (build_products_zip = lane_context.fetch(
+                SharedValues::SCAN_ZIP_BUILD_PRODUCTS_PATH,
+                options[:build_products_zip]
+            ))
+                die "test_without_building supplied in options, but build_products_zip was not specified."
+            end
+
+            sdk = get_or_die(options, :sdk)
+            scheme = get_or_die(options, :scheme)
+            testplan = get_or_die(options, :testplan)
+
+            architecture = options.fetch(:architecture, "arm64-x86_64")
+
+            # Specifying the xctestrun isn't enough - we don't have a way of telling `run_tests' where the binaries are,
+            # other than faking a DerivedData directory full of the artifacts needed to run the tests. So create a
+            # temporary directory with all of the built products inside it, fake that as the derived data directory,
+            # find the xctestrun file inside, and pass both as arguments to `run_tests' if those arguments haven't
+            # already been provided.
+            derived_data_path = create_tmp_workdir() + "/DerivedData"
+            build_products_dir =  derived_data_path + "/Build/Products"
+            FileUtils.mkdir_p build_products_dir
+
+            puts "Unzipping build products #{build_products_zip} into #{build_products_dir}..."
+            `unzip #{build_products_zip} -d #{build_products_dir}`
+
+            # Find xctestrun file. Xcode generates files with different names, so a little bit of logic is required here
+            unless (xctestrun = find_xctestrun_filename(build_products_dir, scheme, testplan, sdk, architecture))
+                die "Can't find xctestrun file in #{build_products_dir}"
+            end
+
+            unless options[:derived_data_path]
+                options[:derived_data_path] = derived_data_path
+            end
+            unless options[:xctestrun]
+                options[:xctestrun] = xctestrun
+            end
+        else
             # We have to build, so get our tools ready for building/signing the tests.
             setup_codesigning(options)
             set_version(options)
@@ -1376,24 +1668,31 @@ doc_lane(
     ensure
         stop_simulator_if_needed(options)
         delete_keychain_if_needed(options)
+        delete_tmp_workdir_if_needed()
 
         if (buildlog_dir = options[:buildlog_dir])
-            expanded_path = File.expand_path(buildlog_dir)
             copy_artifacts(
               target_path: options[:output_directory],
-              artifacts: [expanded_path],
+              artifacts: [buildlog_dir],
               fail_on_missing: true
             )
         end
-    end
 
-    # Note for the below: code_coverage can be true, false, or `nil` if it's not specified.
-    # So if the user explicitly enables code coverage by setting code_coverage = true, then we'll do it.
-    # Otherwise, if we're running tests (i.e., not just building for testing) and the user hasn't explicitly
-    # *disabled* code coverage by setting it to false, we'll go ahead and interpret the reports.
-    code_coverage = options[:code_coverage]
-    if code_coverage == true or (code_coverage != false and not options[:build_for_testing])
-        interpret_code_coverage(options)
+        # Note for the below: code_coverage can be true, false, or `nil` if it's not specified.
+        # So if the user explicitly enables code coverage by setting code_coverage = true, then we'll do it.
+        # Otherwise, if we're running tests (i.e., not just building for testing) and the user hasn't explicitly
+        # *disabled* code coverage by setting it to false, we'll go ahead and interpret the reports.
+        code_coverage = options[:code_coverage]
+        if (xcresult_bundle = lane_context[SharedValues::SCAN_GENERATED_XCRESULT_PATH]) and
+            File.directory?(xcresult_bundle) and
+            (code_coverage or
+            (code_coverage != false and not options[:build_for_testing]))
+            interpret_code_coverage(options)
+        end
+
+        if options[:cleanup_tmpdir]
+            cleanup_tmpdir(options)
+        end
     end
 end
 
@@ -1401,20 +1700,25 @@ end
 
 doc_lane(
     name: :shipit,
-    summary: "Distribute a product according to the build configuration and the provided command-line options.",
-    examples: "
+    summary: <<~DOC,
+      Distribute a product according to the configuration and the provided command-line options, as evaluated by
+      `configit`. Also handles uploading of debugging information and announcements of new releases on Slack.
+      DOC
+    examples: <<~DOC,
       $ fastlane shipit train:ios channel:alpha testflight_groups:\"Internal Members\"
       $ fastlane shipit train:mac channel:beta nexus_project_name:\"special_project\"
-      ",
-    arguments: [:train, :channel],
+      DOC
+    arguments: [:train, :channel, :testflight_upload],
     contexts: [
-      :sentry_upload_dif,
+      :create_gitlab_release,
+      :deliver,
+      :gitlab_project_url,
+      :nexus_upload,
       :sentry_create_release,
       :sentry_set_commits,
-      :upload_to_testflight,
-      :deliver,
-      :nexus_upload,
+      :sentry_upload_dif,
       :slack,
+      :upload_to_testflight,
     ],
     env_vars: [
       :APPSTORE_API_KEY,
@@ -1427,7 +1731,8 @@ doc_lane(
       :SLACK_WEBHOOK_URL,
     ]
 ) do |arguments|
-    options = configit(arguments)
+    configit(arguments)
+    options = lane_context[SharedValues::BUILDIT_CONFIG]
     
     unless (train = options[:train]) and 
         (build_number = options[:build_number]) and 
@@ -1436,20 +1741,26 @@ doc_lane(
         die "Can't release build - need train, version, channel, and changelog."
     end
 
-    if ((api_key = get_train_secret(train, "SENTRY_API_KEY")) or 
+    if (url = get_train_secret(train, "SENTRY_URL")) and
+        ((api_key = get_train_secret(train, "SENTRY_API_KEY")) or 
           auth_token = get_train_secret(train, "SENTRY_AUTH_TOKEN")) and
         (org_slug = options[:sentry_org_slug]) and
         (project_slug = options[:sentry_project_slug])
 
-        # IMPORTANT: We don't want to put these in the global options hash, because it gets printed if there are failures.
         upload_dif_args = filter_args(options, :sentry_upload_dif)
+        upload_dif_args[:url] = url
+
+        # IMPORTANT: We don't want to put these in the global options hash, because it gets printed if there are failures.
         upload_dif_args[:api_key] = api_key if api_key
         upload_dif_args[:auth_token] = auth_token if auth_token
+
         sentry_upload_dif(
             **upload_dif_args
         )
 
         create_release_args = filter_args(options, :sentry_create_release)
+        create_release_args[:url] = url
+
         create_release_args[:api_key] = api_key if api_key
         create_release_args[:auth_token] = auth_token if auth_token
         sentry_create_release(
@@ -1457,9 +1768,16 @@ doc_lane(
         )
 
         set_commits_args = filter_args(options, :sentry_set_commits)
+        set_commits_args[:url] = url
         sentry_set_commits(
             **set_commits_args
         )
+
+        # sentry doesn't link to the new release in the lane context, so figure the link out ourselves.
+        # https://sentry-new.protontech.ch/organizations/proton/releases/ios-vpn%405.1.0/
+
+        sentry_link = "#{url}/organizations/#{org_slug}/releases/#{project_slug}%40#{options[:build_number]}"
+        lane_context[SharedValues::BUILDIT_SENTRY_RELEASE_URL]
     end
   
     if options[:testflight_upload]
@@ -1474,16 +1792,34 @@ doc_lane(
     if options[:deliver_metadata_path]
         deliver_options = filter_args(options, :deliver)
 
+        if (release_date = deliver_options[:auto_release_date]) and
+            not Integer(release_date, exception: false) # Parse datetime
+            release_date = Datetime.parse(release_date).strftime("%Q")
+        end
+
         deliver(**deliver_options)
     end
 
-    if options[:nexus_id]
+    if (nexus_id = options[:nexus_id])
         nexus_options = filter_args(options, :nexus_upload)
         
         nexus_upload(
           **nexus_options,
           nexus_version: 3,
         )
+
+        filename = File.basename(options[:nexus_file])
+        lane_context[SharedValues::BUILDIT_NEXUS_UPLOAD_FILENAME] = filename
+
+        # nexus_upload doesn't tell us where the file went, so we have to guess ourselves.
+        nexus_link = "#{ENV["FL_NEXUS_ENDPOINT"]}/repository" # https://nexus/repository
+        nexus_link << "/#{nexus_id}/#{options[:nexus_project_name]}" # https://nexus/repository/my-repo/project/
+        nexus_link << "/#{options[:build_number]}/#{filename}/#{filename}" # https://nexus/repository/my-repo/project/Product-1.2.3.dmg/Product-1.2.3.dmg
+        lane_context[SharedValues::BUILDIT_NEXUS_UPLOAD_URL] = nexus_link
+    end
+
+    if options[:create_gitlab_release]
+        gitlab_release(options)
     end
 
     if (slack_url = get_train_secret(options[:train], "SLACK_WEBHOOK_URL"))
@@ -1506,7 +1842,7 @@ doc_lane(
         )
     end
 
-    if (jira_url = options[:jira_url]) and 
+    if (jira_url = get_train_secret(options[:train], "JIRA_BASE_URL")) and 
         (jira_token = get_train_secret(options[:train], "JIRA_API_TOKEN")) and
         (jira_ids = options[:project_ids]) and not jira_ids.empty?
 

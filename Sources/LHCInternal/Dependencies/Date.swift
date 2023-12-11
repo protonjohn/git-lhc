@@ -15,4 +15,11 @@ extension Internal {
         formatter.dateFormat = "yyMMddHHmm"
         return formatter.string(from: Self.date())
     }
+
+    public static func gitDateString() -> String {
+        let formatter = DateFormatter()
+        // Sun Nov 12 16:20:42 2023 +0100
+        formatter.dateFormat = "EEE MMM d HH:MM:SS YYYY Z"
+        return formatter.string(from: Self.date())
+    }
 }

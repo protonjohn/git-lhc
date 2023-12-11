@@ -10,6 +10,7 @@ import LHCInternal
 
 struct MockProcessInfo: ProcessInfoish {
     let environment: [String : String]
+    let processIdentifier: Int32 = 42
 
     func with<E: EnvironmentVariable>(envVar: E, setTo value: String) -> Self {
         var environment = environment

@@ -9,6 +9,7 @@ import Foundation
 
 public protocol ProcessInfoish {
     var environment: [String: String] { get }
+    var processIdentifier: Int32 { get }
 }
 
 extension ProcessInfo: ProcessInfoish {

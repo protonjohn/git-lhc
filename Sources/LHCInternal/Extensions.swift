@@ -52,6 +52,9 @@ extension FileHandle: TextOutputStream {
     public func write(_ string: String) {
         try? write(contentsOf: string.data(using: .utf8) ?? Data())
     }
+
+    public static let ttyOut = FileHandle(forWritingAtPath: "/dev/tty")
+    public static let ttyIn = FileHandle(forReadingAtPath: "/dev/tty")
 }
 
 extension Bool {

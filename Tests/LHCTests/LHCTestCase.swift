@@ -15,7 +15,7 @@ import XCTest
 class LHCTestCase: XCTestCase {
     static let homePath = "/Users/test"
     static let repoPath = "\(homePath)/repo"
-    static let configPath = "\(repoPath)/.lhcconfig"
+    static let configPath = "\(repoPath)/.lhc"
 
     var repoUnderTest: MockRepository = .mock
 
@@ -69,7 +69,7 @@ class LHCTestCase: XCTestCase {
             return "y"
         }
 
-        Internal.spawnProcessAndWaitForTermination = { _, _ in }
+        Internal.spawnProcessAndWaitForTermination = { _, _, _, _, _, _ in }
 
         Internal.printer = MockPrinter.mock
 

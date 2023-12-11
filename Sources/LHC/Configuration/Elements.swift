@@ -166,7 +166,7 @@ extension Configuration {
         var resourcePath: String?
         for path in paths {
             guard let resourceBundle = Bundle(path: path),
-                  let thisResourcePath = resourceBundle.path(forResource: "lhcconfig", ofType: "example") else {
+                  let thisResourcePath = resourceBundle.path(forResource: "lhc", ofType: "example") else {
                 continue
             }
 

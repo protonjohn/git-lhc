@@ -143,11 +143,15 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
             message += "\n\n\(body)"
         }
 
+        let signingKey = try? parent.gitConfig?.get().signingKey
+        let dateFormatter = DateFormatter()
+        // Sun Nov 12 16:20:42 2023 +0100
+        dateFormatter.dateFormat = "EEE MMM d HH:MM:SS YYYY Z"
         guard promptForConfirmationIfNotQuiet("""
-            Will create tag:
+            Will create \(signingKey != nil ? "and sign " : "")tag:
             tag \(tagName)
             Tagger: \(signature)
-            Date: [...]
+            Date: ~\(dateFormatter.string(from: Date()))
 
             \(message)
 
@@ -156,11 +160,20 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
             throw CreateReleaseError.userAborted
         }
 
+        var signingCallback: ((String) throws -> String)?
+        if let signingOptions = try parent.signingOptions() {
+            signingCallback = {
+                try LHC.sign($0, options: signingOptions)
+            }
+        }
+
         let tag = try repo.createTag(
             tagName,
             target: commit,
             signature: signature,
-            message: message
+            message: message,
+            force: false,
+            signingCallback: signingCallback
         )
 
         if push {

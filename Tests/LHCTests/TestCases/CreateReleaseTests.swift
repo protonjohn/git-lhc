@@ -142,7 +142,8 @@ class CreateReleaseTests: LHCTestCase {
             tree: .random(),
             parents: [commit],
             message: "fix(fix): fixy fix",
-            signature: .cookie
+            signature: .cookie,
+            signingCallback: { "signature of \($0)" }
         )
         var branch = try repo.currentBranch() as! MockBranch
         branch.oid = nextCommit.oid

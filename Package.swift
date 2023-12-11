@@ -18,12 +18,14 @@ let package = Package(
         // .package(url: /* package url */, from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", exact: "1.2.3"),
         .package(url: "https://github.com/jpsim/Yams", exact: "5.0.6"),
-        .package(url: "https://github.com/protonjohn/SwiftGit2", exact: "0.10.2"),
+        .package(url: "https://github.com/protonjohn/SwiftGit2", revision: "870e5e9c1f4ced10f41af4b240b57367c2bd155a"),
         .package(url: "https://github.com/mxcl/Version", exact: "2.0.1"),
         .package(url: "https://github.com/pointfreeco/swift-parsing", exact: "0.13.0"),
         .package(url: "https://github.com/protonjohn/plistutil", exact: "0.1.0-beta.1"),
         .package(url: "https://github.com/apple/swift-docc-plugin", exact: "1.0.0"),
-        .package(url: "https://github.com/almazrafi/DictionaryCoder", exact: "1.1.0")
+        .package(url: "https://github.com/almazrafi/DictionaryCoder", exact: "1.1.0"),
+        .package(url: "https://github.com/stencilproject/Stencil", exact: "0.15.1"),
+        .package(url: "https://github.com/apple/swift-markdown", exact: "0.3.0"),
     ],
     targets: [
         .executableTarget(
@@ -35,6 +37,7 @@ let package = Package(
                 "Version",
                 "LHC",
                 "LHCInternal",
+                "Stencil",
                 .product(name: "Parsing", package: "swift-parsing"),
             ]
         ),
@@ -45,10 +48,11 @@ let package = Package(
                 "SwiftGit2",
                 "LHCInternal",
                 "DictionaryCoder",
+                "Stencil",
                 .product(name: "Parsing", package: "swift-parsing")
             ],
             resources: [
-                .process("lhcconfig.example")
+                .process("lhc.example")
             ]
         ),
         .target(name: "LHCInternal",

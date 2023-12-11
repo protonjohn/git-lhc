@@ -6,9 +6,10 @@
 //
 
 import Foundation
-import SwiftGit2
 import LHCInternal
-import LHC
+import System
+@testable import LHC
+@testable import SwiftGit2
 
 struct MockCommit: Commitish, Identifiable {
     static var type: GitObjectType = .commit
@@ -60,11 +61,25 @@ struct MockBranch: Branchish, Hashable {
 }
 
 struct MockTag: Tagish {
+    static var type: GitObjectType = .tag
+
     var name: String
     var oid: ObjectID
     var tagger: Signature
     var target: Pointer
     var message: String
+
+    init(name: String, oid: ObjectID, tagger: Signature, target: Pointer, message: String) {
+        self.name = name
+        self.oid = oid
+        self.tagger = tagger
+        self.target = target
+        self.message = message
+    }
+
+    init(_ pointer: OpaquePointer) {
+        fatalError("Not implemented")
+    }
 }
 
 enum MockTagReference: TagReferenceish {
@@ -91,6 +106,14 @@ enum MockTagReference: TagReferenceish {
         }
     }
 
+    var tagOid: ObjectID? {
+        guard case .annotated(_, let mockTag) = self else {
+            return nil
+        }
+
+        return mockTag.oid
+    }
+
     var message: String? {
         switch self {
         case .annotated(_, let tag):
@@ -109,10 +132,10 @@ class MockCommitishIterator: CommitishIterator {
 
     init(commits: [MockCommit]) {
         self.commits = commits
-        super.init(nil)
+        super.init(nil, closure: nil)
     }
 
-    override func next() -> CommitishIterator.Element? {
+    override func next() -> Element? {
         if let error {
             return .failure(error)
         }
@@ -125,10 +148,94 @@ class MockCommitishIterator: CommitishIterator {
     }
 }
 
+class MockNoteIterator: LHCNoteIterator {
+    let notes: [Note]
+
+    var error: Error?
+    var index = 0
+
+    init(notes: [Note]) {
+        self.notes = notes
+        super.init(nil, closure: nil)
+    }
+
+    override func next() -> Element? {
+        if let error {
+            return .failure(error as NSError)
+        }
+
+        let current = index
+        guard current < notes.count else { return nil }
+        defer { index += 1 }
+
+        return .success(notes[current])
+    }
+}
+
+typealias MockConfig = [String: Any]
+extension MockConfig: Configish {
+    func get<T>(as type: T.Type, name: String) -> Result<T, NSError> {
+        if let value = self[name] as? T {
+            return .success(value)
+        }
+        return .failure(POSIXError(.ENOENT) as NSError)
+    }
+
+    mutating func set<T>(_ value: T, forKey key: String) -> Result<(), NSError> {
+        self[key] = value
+        return .success(())
+    }
+
+    public func get(_ type: Bool.Type, _ name: String) -> Result<Bool, NSError> {
+        get(as: type, name: name)
+    }
+
+    public func get(_ type: Int32.Type, _ name: String) -> Result<Int32, NSError> {
+        get(as: type, name: name)
+    }
+
+    public func get(_ type: Int64.Type, _ name: String) -> Result<Int64, NSError> {
+        get(as: type, name: name)
+    }
+
+    public func get(_ type: String.Type, _ name: String) -> Result<String, NSError> {
+        get(as: type, name: name)
+    }
+
+    public func get(_ type: FilePath.Type, _ name: String) -> Result<FilePath, NSError> {
+        get(as: type, name: name)
+    }
+
+    public mutating func set(_ name: String, value: Bool) -> Result<(), NSError> {
+        set(value, forKey: name)
+    }
+
+    public mutating func set(_ name: String, value: Int32) -> Result<(), NSError> {
+        set(value, forKey: name)
+    }
+
+    public mutating func set(_ name: String, value: Int64) -> Result<(), NSError> {
+        set(value, forKey: name)
+    }
+
+    public mutating func set(_ name: String, value: String) -> Result<(), NSError> {
+        set(value, forKey: name)
+    }
+
+    public static var defaultConfig: Self = [:]
+
+    public var global: Self {
+        Self.defaultConfig
+    }
+}
+
 struct MockRepository: Repositoryish {
     var defaultSignature: Signature = .cookie
+    var defaultNotesRefName: String = "refs/notes/commits"
 
+    public var config: any Configish = MockConfig()
     var objects: [OID: MockCommit]
+    var notes: [OID: Note]
     var tags: [MockTagReference]
     var localBranches: [MockBranch: [MockCommit]]
     var remoteBranches: [MockBranch: [MockCommit]]
@@ -156,6 +263,7 @@ struct MockRepository: Repositoryish {
         case unknownTag(String)
         case unknownTagOID(ObjectID)
         case tagAlreadyExists(String)
+        case noteAlreadyExists(String)
     }
 
     mutating func setHEAD(_ oid: ObjectID) throws {
@@ -213,7 +321,50 @@ struct MockRepository: Repositoryish {
         return tag
     }
 
-    mutating func createTag(_ name: String, target: ObjectType, signature: Signature, message: String) throws -> TagReferenceish {
+    func notes(notesRef: String?) throws -> LHCNoteIterator {
+        MockNoteIterator(notes: notes.values.map { $0 })
+    }
+
+    func note(for oid: ObjectID, notesRef: String?) throws -> Note {
+        guard let note = notes[oid] else { throw MockError.unknownOID(oid) }
+        return note
+    }
+
+    mutating func createNote(
+        for oid: ObjectID,
+        message: String,
+        author: Signature,
+        committer: Signature,
+        noteCommitMessage: String?,
+        notesRefName: String?,
+        force: Bool,
+        signingCallback: ((String) throws -> String)?
+    ) throws -> Note {
+        guard force || (notes[oid] == nil) else {
+            throw MockError.noteAlreadyExists(notes[oid]!.message)
+        }
+        let note = Note(
+            oid: oid,
+            author: author,
+            committer: committer,
+            message: message
+        )
+        notes[oid] = note
+        return note
+    }
+
+    mutating func removeNote(
+        for oid: ObjectID,
+        author: Signature,
+        committer: Signature,
+        noteCommitMessage: String?,
+        notesRefName: String?,
+        signingCallback: ((String) throws -> String)?
+    ) throws {
+        notes[oid] = nil
+    }
+
+    mutating func createTag(_ name: String, target: ObjectType, signature: Signature, message: String?, force: Bool, signingCallback: ((String) throws -> String)?) throws -> TagReferenceish {
         guard !tags.contains(where: { $0.name == name }) else {
             throw MockError.tagAlreadyExists(name)
         }
@@ -222,7 +373,7 @@ struct MockRepository: Repositoryish {
             fatalError("Invariant violation: target is not a mock commit object")
         }
 
-        let tag: MockTagReference = .annotated(name: name, message: message, tagging: commit)
+        let tag: MockTagReference = .annotated(name: name, message: message ?? "", tagging: commit)
         tags.append(tag)
 
         MockRepository.repoUpdated?(self)
@@ -257,7 +408,7 @@ struct MockRepository: Repositoryish {
         MockRepository.repoUpdated?(self)
     }
 
-    mutating func commit(tree treeOID: ObjectID, parents: [Commitish], message: String, signature: Signature) throws -> Commitish {
+    mutating func commit(tree treeOID: ObjectID, parents: [Commitish], message: String, signature: Signature, signingCallback: ((String) throws -> String)?) throws -> Commitish {
         let commit = MockCommit(
             oid: .random(),
             parentOIDs: parents.map(\.oid),
@@ -269,6 +420,22 @@ struct MockRepository: Repositoryish {
 
         objects[commit.oid] = commit
         return commit
+    }
+
+    func reference(named: String) throws -> ReferenceType {
+        fatalError("Not yet implemented")
+    }
+
+    func object(parsing: String) throws -> ObjectType {
+        fatalError("Not yet implemented")
+    }
+
+    func object(_ oid: ObjectID) throws -> ObjectType {
+        fatalError("Not yet implemented")
+    }
+
+    func readNoteCommit(for oid: ObjectID, commit: Commitish) throws -> Note {
+        fatalError("Not yet implemented")
     }
 }
 
@@ -546,6 +713,7 @@ extension MockRepository {
     /// - Note: Because this is pass-by-value, modifications only work at the *start* of a test case.
     static var mock: Self = .init(
         objects: MockCommit.all,
+        notes: [:],
         tags: MockTagReference.all,
         localBranches: MockBranch.all
             .filter({ $0.longName.starts(with: "refs/heads") })

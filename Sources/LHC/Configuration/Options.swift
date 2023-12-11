@@ -103,6 +103,9 @@ extension Configuration {
         /// The (optional) corresponding display names for the commit categories above.
         public let commitCategoryDisplayNames: [String]?
 
+        /// The (optional) reference name to use for storing/retrieving tag and commit attributes.
+        public let attrsRef: String?
+
         public enum CodingKeys: String, CodingKey {
             case train = "train"
             case channel = "channel"
@@ -120,6 +123,7 @@ extension Configuration {
             case categoryIncrements = "categories_increment"
             case changelogExcludedCategories = "changelog_exclude_categories"
             case commitCategoryDisplayNames = "human_commit_categories"
+            case attrsRef = "attrs_ref"
         }
     }
 

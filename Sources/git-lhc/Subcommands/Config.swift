@@ -49,7 +49,7 @@ struct ConfigEval: ParsableCommand {
         name: [.customShort("D", allowingJoined: true), .long],
         help: "Define a property to a value before interpreting the file."
     )
-    var defines: [Define] = []
+    var defines: [LHC.Define] = []
 
     mutating func run() throws {
         guard let config = try parent.config?.get() else {
@@ -116,21 +116,5 @@ struct ConfigEval: ParsableCommand {
         let handle = try FileHandle(forWritingTo: outputFile)
         let data = try JSONSerialization.data(withJSONObject: jsonDict)
         try handle.write(contentsOf: data)
-    }
-}
-
-struct Define: ExpressibleByArgument {
-    public let property: Configuration.Property
-    public let value: String
-}
-
-extension Define {
-    init?(argument: String) {
-        let components = argument.split(separator: "=", maxSplits: 1)
-
-        self.init(
-            property: .init(rawValue: String(components.first!)),
-            value: components.count > 1 ? String(components[1]) : "YES"
-        )
     }
 }

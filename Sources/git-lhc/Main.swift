@@ -19,6 +19,7 @@ struct LHC: AsyncParsableCommand {
         abstract: "A tool for git repositories that use conventional commits and semantic versioning.",
         subcommands: [
             Config.self,
+            Attr.self,
             Lint.self,
             Describe.self,
             CreateRelease.self,
@@ -61,6 +62,16 @@ struct LHC: AsyncParsableCommand {
 
         lazy var train: String? = {
             commandLineTrain ?? LHCEnvironment.trainName.value
+        }()
+
+        /// The git configuration object for the repository.
+        lazy var gitConfig: Result<any Configish, Error>? = {
+            do {
+                let repo = try Internal.openRepo(at: repo)
+                return try .success(repo.config)
+            } catch {
+                return .failure(error)
+            }
         }()
 
         /// The parsed and ingested configuration file.
@@ -155,6 +166,54 @@ struct LHC: AsyncParsableCommand {
 
             return result
         }
+
+        mutating func signingOptions() throws -> SigningOptions? {
+            let `default` = Internal.defaultGitConfig
+            let local = try gitConfig?.get()
+            let global = (try? local?.global) ?? (try? `default`?.global)
+            let signingOptions = local?.signingOptions ?? global?.signingOptions ?? `default`?.signingOptions
+            return signingOptions
+        }
+    }
+
+    struct Define: ExpressibleByArgument {
+        public let property: Configuration.Property
+        public let value: String
+    }
+}
+
+extension LHC {
+    static func sign(_ contents: String, options: SigningOptions) throws -> String {
+        let signingCommand = options.signingCommand.joined(separator: " ")
+
+        guard let output = try Internal.spawnAndWaitWithOutput(command: signingCommand, input: contents) else {
+            return ""
+        }
+        return String(data: output, encoding: .utf8) ?? ""
+    }
+}
+
+extension ConventionalCommit.Trailer: ExpressibleByArgument {
+    public init?(argument: String) {
+        let components = argument.split(separator: "=", maxSplits: 1)
+
+        let key = String(components.first!)
+        let value = components.count > 1 ? String(components[1]) : "true"
+        guard let trailer = Self(parsing: "\(key): \(value)") else {
+            return nil
+        }
+        self = trailer
+    }
+}
+
+extension LHC.Define {
+    init?(argument: String) {
+        let components = argument.split(separator: "=", maxSplits: 1)
+
+        self.init(
+            property: .init(rawValue: String(components.first!)),
+            value: components.count > 1 ? String(components[1]) : "YES"
+        )
     }
 }
 

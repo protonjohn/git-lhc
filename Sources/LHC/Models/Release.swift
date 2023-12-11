@@ -12,6 +12,8 @@ import LHCInternal
 
 /// A software release.
 public struct Release {
+    public typealias Trailer = ConventionalCommit.Trailer
+
     /// The category for a given change, denoted by its conventional commit type.
     public typealias Category = String
 
@@ -24,8 +26,14 @@ public struct Release {
     /// The changes associated with this release, grouped by category.
     public let changes: [Category: [Change]]
 
-    /// The body of the tag associated with this release. Normally contains release notes and other metadata.
+    /// The body of the tag associated with this release. Normally contains release notes.
     public let body: String?
+
+    /// Trailers added to the release's tag body.
+    public let trailers: [Trailer]?
+
+    /// Attributes attached to the release tag through git notes.
+    public let attributes: [Trailer]?
 
     /// The parsed version of this release.
     public var version: Version? {
@@ -124,6 +132,8 @@ extension Release: Codable {
         case changes
         case body = "changelog"
         case channel
+        case trailers = "tag_trailers"
+        case attributes = "attributes"
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -135,6 +145,7 @@ extension Release: Codable {
         try container.encode(self.changes, forKey: .changes)
         try container.encodeIfPresent(self.body, forKey: .body)
         try container.encode(self.channel, forKey: .channel)
+        try container.encode(self.attributes, forKey: .attributes)
     }
 
     public init(from decoder: Decoder) throws {
@@ -146,7 +157,25 @@ extension Release: Codable {
         let changes = try container.decodeIfPresent([Category: [Change]].self, forKey: .changes) ?? [:]
         let body = try container.decodeIfPresent(String.self, forKey: .body)
 
-        self.init(versionString: versionString, train: train, tagged: tagged, changes: changes, body: body)
+        let trailers: [Trailer]? = try container.decodeIfPresent([String: String].self, forKey: .trailers)?
+            .reduce(into: []) {
+                $0.append(.init(key: $1.key, value: $1.value))
+            }
+
+        let attributes: [Trailer]? = try container.decodeIfPresent([String: String].self, forKey: .attributes)?
+            .reduce(into: []) {
+                $0.append(.init(key: $1.key, value: $1.value))
+            }
+
+        self.init(
+            versionString: versionString,
+            train: train,
+            tagged: tagged,
+            changes: changes,
+            body: body,
+            trailers: trailers,
+            attributes: attributes
+        )
     }
 }
 
@@ -156,6 +185,8 @@ extension Release {
         tagged: Bool,
         train: String?,
         body: String?,
+        trailers: [Trailer]?,
+        attributes: [Trailer]?,
         conventionalCommits: [ConventionalCommit],
         correspondingHashes: [ObjectID],
         projectIdTrailerName trailerName: String? = nil
@@ -165,6 +196,8 @@ extension Release {
         self.versionString = version.description
         self.tagged = tagged
         self.train = train
+        self.trailers = trailers
+        self.attributes = attributes
         self.body = body
 
         self.changes = conventionalCommits.enumerated().reduce(into: [:], { result, element in
@@ -203,7 +236,9 @@ extension Release {
             train: train,
             tagged: tagged,
             changes: changes,
-            body: body
+            body: body,
+            trailers: trailers,
+            attributes: attributes
         )
     }
 
@@ -213,7 +248,9 @@ extension Release {
             train: train,
             tagged: tagged,
             changes: changes,
-            body: notes
+            body: notes,
+            trailers: trailers,
+            attributes: attributes
         )
     }
 
@@ -227,7 +264,9 @@ extension Release {
                     $0.redacting(commitHash: commitHashes, projectIds: projectIds)
                 }
             }),
-            body: body
+            body: body,
+            trailers: trailers,
+            attributes: attributes
         )
     }
 
@@ -305,6 +344,7 @@ extension Release.Change {
 /// are responsible for determining the appropriate ranges of commits from the available tags, and then pass these
 /// ranges onto the private `releases()` function which is responsible for creating the actual Release objects.
 extension Repositoryish {
+    private typealias Trailer = ConventionalCommit.Trailer
     private typealias TaggedRelease = (tag: TagReferenceish, version: Version)
     private typealias ReleaseRange = (last: TaggedRelease?, release: ReferenceType)
 
@@ -356,9 +396,14 @@ extension Repositoryish {
             let repoCommits = try commits(from: release.oid, since: last?.tag.oid)
             let commits: [(oid: OID, cc: ConventionalCommit)] = repoCommits.compactMap {
                 do {
+                    var attributes: [Trailer]?
+                    if let attrsRef = options?.attrsRef,
+                       let note = try? note(for: $0.oid, notesRef: attrsRef) {
+                        attributes = note.attributes.trailers
+                    }
                     // Attempt to properly parse a conventional commit. If we can't, then fake one using the
                     // commit subject and body.
-                    let commit = try ConventionalCommit(message: $0.message)
+                    let commit = try ConventionalCommit(message: $0.message, attributes: attributes)
                     guard let categories = options?.commitCategories else {
                         return ($0.oid, commit)
                     }
@@ -388,20 +433,28 @@ extension Repositoryish {
             #endif
 
             var body: String?
-            if let tagReference = release as? TagReferenceish,
-               let message = tagReference.message {
-                if let conventionalTag = try? ConventionalCommit(message: message) {
-                    // Annotated tags formatted like conventional commits look like:
-                    // release(<train name>): Version 3.0.1
-                    //
-                    // <body follows>
-                    //
-                    // <trailers follow optionally>
-                    //
-                    // To avoid duplicating information, we'll only put the body here if the commit parses correctly.
-                    body = conventionalTag.body
-                } else {
-                    body = message
+            var trailers: [Trailer]?
+            var attributes: [Trailer]?
+            if let tagReference = release as? TagReferenceish {
+                if let message = tagReference.message {
+                    if let conventionalTag = try? ConventionalCommit(message: message) {
+                        // Annotated tags formatted like conventional commits look like:
+                        // release(<train name>): Version 3.0.1
+                        //
+                        // <body follows>
+                        //
+                        // <trailers follow optionally>
+                        //
+                        // To avoid duplicating information, we'll only put the body here if the commit parses correctly.
+                        body = conventionalTag.body
+                        trailers = conventionalTag.trailers
+                    } else {
+                        body = message
+                    }
+                }
+                if let attrsRef = options?.attrsRef,
+                   let note = try? note(for: tagReference.oid, notesRef: attrsRef) {
+                    attributes = note.attributes.trailers
                 }
             }
 
@@ -434,6 +487,8 @@ extension Repositoryish {
                 tagged: tagged,
                 train: options?.trainDisplayName ?? options?.train,
                 body: body,
+                trailers: trailers,
+                attributes: attributes,
                 conventionalCommits: conventionalCommits,
                 correspondingHashes: commits.map(\.oid),
                 projectIdTrailerName: options?.projectIdTrailerName
@@ -553,6 +608,59 @@ extension Repositoryish {
             forceLatestVersionTo: forcedVersion,
             options: options
         ).0
+    }
+
+    /// Get the list of commits that added or removed a given attribute key for a given object.
+    public func attributeLog(key: String, target: ObjectID, refName: String) throws -> [AttributeLogEntry] {
+        // Get all of the note commits for a given object that have defined a given attribute.
+        return try noteCommits(on: try reference(named: refName), for: target)
+            .compactMap {
+                guard let parent = $0.parentOIDs.first,
+                      let parentCommit = try? commit(parent),
+                      let parentNote = try? readNoteCommit(for: target, commit: parentCommit) else {
+                    // The common case: this is the first attribute added for a given object
+                    guard let attributes = $1.attributes.trailers,
+                          let first = attributes.first else { return nil }
+
+                    return .init(
+                        action: .add,
+                        key: first.key,
+                        value: first.value,
+                        commit: $0
+                    )
+                }
+
+                if let value = $1.attributes.trailers?[key] {
+                    if parentNote.attributes.trailers?[key] == nil {
+                        return .init(action: .add, key: key, value: value, commit: $0)
+                    }
+                } else if let parentValue = parentNote.attributes.trailers?[key] {
+                    return .init(action: .remove, key: key, value: parentValue, commit: $0)
+                }
+
+                return nil
+            }
+    }
+}
+
+public struct AttributeLogEntry: CustomStringConvertible {
+    public enum Action: String {
+        case add
+        case remove
+    }
+
+    public let action: Action
+    public let key: String
+    public let value: String
+    public let commit: Commitish
+
+    public var description: String {
+        let subject = commit.message.split(separator: "\n", maxSplits: 1).first!
+        let longHash = commit.oid.description
+        let shortHash = longHash.prefix(upTo: longHash.index(longHash.startIndex, offsetBy: 8))
+
+        let set = action == .add ? "+" : "-"
+        return "\(set)\(key): \(value)\n\(shortHash) \(subject)"
     }
 }
 

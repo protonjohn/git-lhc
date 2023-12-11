@@ -10,6 +10,7 @@
 import Foundation
 import Parsing
 import Version
+import SwiftGit2
 import LHCInternal
 
 public struct ConventionalCommit: Codable {
@@ -20,9 +21,23 @@ public struct ConventionalCommit: Codable {
         public let summary: String
     }
 
-    public struct Trailer: Codable, Equatable, Trailerish {
+    public struct Trailer: Codable, Equatable, CustomStringConvertible, Trailerish {
         public let key: String
         public let value: String
+
+        public init(key: String, value: String) {
+            self.key = key
+            self.value = value
+        }
+
+        public init?(parsing string: String) {
+            guard let value = try? Self.parser.parse(string[...]) else { return nil }
+            self = value
+        }
+
+        public var description: String {
+            "\(key): \(value)"
+        }
     }
 
     public enum VersionBump: Codable, Equatable, Comparable {
@@ -64,6 +79,7 @@ public struct ConventionalCommit: Codable {
     public let header: Header
     public let body: String?
     public let trailers: [Trailer]
+    public let attributes: [Trailer]? /// These are parsed from git notes.
 
     public var isBreaking: Bool {
         header.isBreaking ||
@@ -115,6 +131,7 @@ fileprivate extension ConventionalCommit.Trailer {
         // Trailer key
         OneOf {
             "BREAKING CHANGE".map(String.init)
+            "BREAKING-CHANGE".map(String.init)
             CharacterSet.trailerKeyCharacters.map(String.init)
         }
         ": "
@@ -128,6 +145,40 @@ fileprivate extension ConventionalCommit.Trailer {
     }
 }
 
+extension Array<ConventionalCommit.Trailer> {
+    static func parse(message: Substring) -> (Self, firstTrailerIndex: Int) {
+        let lines = message.split(
+            separator: "\n",
+            omittingEmptySubsequences: false
+        )
+
+        var firstTrailerIndex = message.count
+        var trailers: [Element] = []
+        for line in lines.reversed() {
+            guard let trailer = try? Element.parser.parse(line) else {
+                // If we hit an empty line near the end of the notes, keep going.
+                if line.isEmpty && trailers.isEmpty {
+                    continue
+                }
+                break
+            }
+            trailers.insert(trailer, at: 0)
+            firstTrailerIndex -= (line.count + 1) // account for newline character
+        }
+
+        return (trailers, firstTrailerIndex)
+    }
+
+    public subscript(_ key: String) -> String? {
+        first { $0.key == key }?.value
+    }
+
+    public init(message: String) {
+        let (trailers, _) = Self.parse(message: message[...])
+        self = trailers
+    }
+}
+
 extension ConventionalCommit {
     /// Create a ConventionalCommit object by parsing a commit message.
     ///
@@ -135,34 +186,30 @@ extension ConventionalCommit {
     /// will also iterate over the lines in the commit body, starting at the end, to look for any commit trailers.
     ///
     /// It will then assume that the commit body is anything that is not the commit subject or one of the trailers.
-    public init(message: String) throws {
+    public init(message: String, attributes: [Trailer]? = nil) throws {
         let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        var lines = message.split(
+        var components = message.split(
             separator: "\n",
+            maxSplits: 1,
             omittingEmptySubsequences: false
         )
 
-        let subject = lines.removeFirst()
+        let subject = components.removeFirst()
         let header = try Header.parser.parse(subject)
-
-        var firstTrailerIndex = lines.count
-        var trailers: [Trailer] = []
-        for (index, element) in lines.enumerated().reversed() {
-            guard let trailer = try? Trailer.parser.parse(element) else {
-                break
-            }
-            trailers.insert(trailer, at: 0)
-            firstTrailerIndex = index
+        guard let bodyAndMaybeTrailers = components.first else {
+            self.init(header: header, body: nil, trailers: [], attributes: attributes)
+            return
         }
 
-        let body = lines[..<firstTrailerIndex]
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let (trailers, firstTrailerIndex) = Array<Trailer>.parse(message: bodyAndMaybeTrailers)
+        let bodyEndIndex = bodyAndMaybeTrailers.index(bodyAndMaybeTrailers.startIndex, offsetBy: firstTrailerIndex)
+        let body = bodyAndMaybeTrailers[..<bodyEndIndex]
 
         self.init(
             header: header,
-            body: body == "" ? nil : body,
-            trailers: trailers
+            body: body == "" ? nil : String(body),
+            trailers: trailers,
+            attributes: attributes
         )
     }
 
@@ -181,6 +228,19 @@ extension ConventionalCommit {
         } else {
             return .patch
         }
+    }
+}
+
+extension Note {
+    public var attributes: (body: String, trailers: [ConventionalCommit.Trailer]?) {
+        let (trailers, index) = Array<ConventionalCommit.Trailer>.parse(message: message[...])
+
+        guard !trailers.isEmpty else {
+            return (message, [])
+        }
+
+        let body = message[message.startIndex..<message.index(message.startIndex, offsetBy: index)]
+        return (String(body), trailers)
     }
 }
 
