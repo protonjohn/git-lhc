@@ -21,7 +21,7 @@ struct MockCommit: Commitish, Identifiable {
     var message: String
     var date: Date
 
-    var trailers: [Trailerish] {
+    var trailers: [ConventionalCommit.Trailer] {
         (try? ConventionalCommit(message: message).trailers) ?? []
     }
 
@@ -102,7 +102,7 @@ enum MockTagReference: TagReferenceish {
         case .lightweight(_, let oid):
             return oid
         case .annotated(_, let tag):
-            return tag.oid
+            return tag.target.oid
         }
     }
 
@@ -124,112 +124,66 @@ enum MockTagReference: TagReferenceish {
     }
 }
 
-class MockCommitishIterator: CommitishIterator {
-    let commits: [MockCommit]
-
-    var error: Error?
-    var index = 0
-
-    init(commits: [MockCommit]) {
-        self.commits = commits
-        super.init(nil, closure: nil)
-    }
-
-    override func next() -> Element? {
-        if let error {
-            return .failure(error)
-        }
-
-        let current = index
-        guard current < commits.count else { return nil }
-        defer { index += 1 }
-
-        return .success(commits[current])
-    }
-}
-
-class MockNoteIterator: LHCNoteIterator {
-    let notes: [Note]
-
-    var error: Error?
-    var index = 0
-
-    init(notes: [Note]) {
-        self.notes = notes
-        super.init(nil, closure: nil)
-    }
-
-    override func next() -> Element? {
-        if let error {
-            return .failure(error as NSError)
-        }
-
-        let current = index
-        guard current < notes.count else { return nil }
-        defer { index += 1 }
-
-        return .success(notes[current])
-    }
-}
-
 typealias MockConfig = [String: Any]
 extension MockConfig: Configish {
-    func get<T>(as type: T.Type, name: String) -> Result<T, NSError> {
+    public static func `default`() throws -> Dictionary<Key, Value> {
+        [:]
+    }
+
+    func get<T>(as type: T.Type, name: String) throws -> T {
         if let value = self[name] as? T {
-            return .success(value)
+            return value
         }
-        return .failure(POSIXError(.ENOENT) as NSError)
+        throw GitError(code: .notFound, detail: .config, description: "Mock config: key '\(name)' not found")
     }
 
-    mutating func set<T>(_ value: T, forKey key: String) -> Result<(), NSError> {
+    mutating func set<T>(_ value: T, forKey key: String) throws {
         self[key] = value
-        return .success(())
     }
 
-    public func get(_ type: Bool.Type, _ name: String) -> Result<Bool, NSError> {
-        get(as: type, name: name)
+    public func get(_ type: Bool.Type, _ name: String) throws -> Bool {
+        try get(as: type, name: name)
     }
 
-    public func get(_ type: Int32.Type, _ name: String) -> Result<Int32, NSError> {
-        get(as: type, name: name)
+    public func get(_ type: Int32.Type, _ name: String) throws -> Int32 {
+        try get(as: type, name: name)
     }
 
-    public func get(_ type: Int64.Type, _ name: String) -> Result<Int64, NSError> {
-        get(as: type, name: name)
+    public func get(_ type: Int64.Type, _ name: String) throws -> Int64 {
+        try get(as: type, name: name)
     }
 
-    public func get(_ type: String.Type, _ name: String) -> Result<String, NSError> {
-        get(as: type, name: name)
+    public func get(_ type: String.Type, _ name: String) throws -> String {
+        try get(as: type, name: name)
     }
 
-    public func get(_ type: FilePath.Type, _ name: String) -> Result<FilePath, NSError> {
-        get(as: type, name: name)
+    public func get(_ type: FilePath.Type, _ name: String) throws -> FilePath {
+        try get(as: type, name: name)
     }
 
-    public mutating func set(_ name: String, value: Bool) -> Result<(), NSError> {
-        set(value, forKey: name)
+    public mutating func set(_ name: String, value: Bool) throws {
+        try set(value, forKey: name)
     }
 
-    public mutating func set(_ name: String, value: Int32) -> Result<(), NSError> {
-        set(value, forKey: name)
+    public mutating func set(_ name: String, value: Int32) throws {
+        try set(value, forKey: name)
     }
 
-    public mutating func set(_ name: String, value: Int64) -> Result<(), NSError> {
-        set(value, forKey: name)
+    public mutating func set(_ name: String, value: Int64) throws {
+        try set(value, forKey: name)
     }
 
-    public mutating func set(_ name: String, value: String) -> Result<(), NSError> {
-        set(value, forKey: name)
+    public mutating func set(_ name: String, value: String) throws {
+        try set(value, forKey: name)
     }
-
-    public static var defaultConfig: Self = [:]
 
     public var global: Self {
-        Self.defaultConfig
+        try! Self.default()
     }
 }
 
 struct MockRepository: Repositoryish {
+
     var defaultSignature: Signature = .cookie
     var defaultNotesRefName: String = "refs/notes/commits"
 
@@ -239,7 +193,7 @@ struct MockRepository: Repositoryish {
     var tags: [MockTagReference]
     var localBranches: [MockBranch: [MockCommit]]
     var remoteBranches: [MockBranch: [MockCommit]]
-    var pushes: [(Credentials, ReferenceType)] = []
+    var pushes: [(remoteName: String, ReferenceType)] = []
 
     var head: any ReferenceType
 
@@ -247,23 +201,8 @@ struct MockRepository: Repositoryish {
         tags
     }
 
-    func commits(in branch: Branchish) -> CommitishIterator {
-        MockCommitishIterator(
-            commits: localBranches[branch as! MockBranch] ?? []
-        )
-    }
-
     func HEAD() throws -> ReferenceType {
         head
-    }
-
-    enum MockError: Error {
-        case unknownOID(OID)
-        case unknownBranch(String)
-        case unknownTag(String)
-        case unknownTagOID(ObjectID)
-        case tagAlreadyExists(String)
-        case noteAlreadyExists(String)
     }
 
     mutating func setHEAD(_ oid: ObjectID) throws {
@@ -274,7 +213,7 @@ struct MockRepository: Repositoryish {
         } else if let tag = tags.first(where: { $0.oid == oid }) {
             head = tag
         } else {
-            throw MockError.unknownOID(oid)
+            throw GitError(code: .notFound, detail: .object, description: "Unknown object \(oid)")
         }
 
         MockRepository.repoUpdated?(self)
@@ -282,28 +221,28 @@ struct MockRepository: Repositoryish {
 
     func commit(_ oid: ObjectID) throws -> Commitish {
         guard let object = objects[oid] else {
-            throw MockError.unknownOID(oid)
+            throw GitError(code: .notFound, detail: .object, description: "Unknown object \(oid)")
         }
         return object
     }
 
     func localBranch(named name: String) throws -> Branchish {
         guard let branch = localBranches.first(where: { $0.key.name == name}) else {
-            throw MockError.unknownBranch(name)
+            throw GitError(code: .notFound, detail: .reference, description: "Unknown branch \(name)")
         }
         return branch.key
     }
 
     func remoteBranch(named name: String) throws -> Branchish {
         guard let branch = remoteBranches.first(where: { $0.key.name == name}) else {
-            throw MockError.unknownBranch(name)
+            throw GitError(code: .notFound, detail: .reference, description: "Unknown branch \(name)")
         }
         return branch.key
     }
 
     func tag(named name: String) throws -> TagReferenceish {
         guard let tag = tags.first(where: { $0.name == name }) else {
-            throw MockError.unknownTag(name)
+            throw GitError(code: .notFound, detail: .tag, description: "Unknown tag \(name)")
         }
         return tag
     }
@@ -315,18 +254,16 @@ struct MockRepository: Repositoryish {
         }).filter({
             $0.oid == oid
         }).first else {
-            throw MockError.unknownTagOID(oid)
+            throw GitError(code: .notFound, detail: .tag, description: "Unknown tag \(oid)")
         }
 
         return tag
     }
 
-    func notes(notesRef: String?) throws -> LHCNoteIterator {
-        MockNoteIterator(notes: notes.values.map { $0 })
-    }
-
     func note(for oid: ObjectID, notesRef: String?) throws -> Note {
-        guard let note = notes[oid] else { throw MockError.unknownOID(oid) }
+        guard let note = notes[oid] else {
+            throw GitError(code: .notFound, detail: .object, description: "No note found for \(oid)")
+        }
         return note
     }
 
@@ -338,10 +275,10 @@ struct MockRepository: Repositoryish {
         noteCommitMessage: String?,
         notesRefName: String?,
         force: Bool,
-        signingCallback: ((String) throws -> String)?
+        signingCallback: Repository.SigningCallback?
     ) throws -> Note {
         guard force || (notes[oid] == nil) else {
-            throw MockError.noteAlreadyExists(notes[oid]!.message)
+            throw GitError(code: .exists, detail: .object, description: "Note already exists for \(oid)")
         }
         let note = Note(
             oid: oid,
@@ -359,14 +296,15 @@ struct MockRepository: Repositoryish {
         committer: Signature,
         noteCommitMessage: String?,
         notesRefName: String?,
-        signingCallback: ((String) throws -> String)?
+        signingCallback: Repository.SigningCallback?
     ) throws {
         notes[oid] = nil
     }
 
-    mutating func createTag(_ name: String, target: ObjectType, signature: Signature, message: String?, force: Bool, signingCallback: ((String) throws -> String)?) throws -> TagReferenceish {
+    mutating func createTag(_ name: String, target: ObjectType, signature: Signature, message: String?, force: Bool, signingCallback: Repository.SigningCallback?) throws -> Tagish {
+        
         guard !tags.contains(where: { $0.name == name }) else {
-            throw MockError.tagAlreadyExists(name)
+            throw GitError(code: .exists, detail: .tag, description: "\(name) already exists.")
         }
 
         guard let commit = target as? MockCommit else {
@@ -377,38 +315,14 @@ struct MockRepository: Repositoryish {
         tags.append(tag)
 
         MockRepository.repoUpdated?(self)
-        return tag
-    }
 
-    mutating func push(remote remoteName: String, credentials: Credentials, reference: ReferenceType) throws {
-        switch reference {
-        case let localBranch as MockBranch:
-            guard let commit = try commit(localBranch.oid) as? MockCommit else {
-                fatalError("Invariant violation: commit is not a mock object")
-            }
-
-            let mockRemote: MockBranch = .branch(
-                name: "refs/remotes/\(remoteName)/\(localBranch.name)",
-                head: commit
-            )
-
-            remoteBranches[mockRemote] = try commits(on: localBranch, since: nil).map {
-                guard let commit = $0 as? MockCommit else {
-                    fatalError("Invariant violation: commit is not a mock object")
-                }
-                return commit
-            }
-            fallthrough
-        case is MockTagReference:
-            pushes.append((credentials, reference))
-        default:
-            fatalError("Test invariant violation: unhandled type \(type(of: reference)) in \(#function)")
+        guard case .annotated(_, let mockTag) = tag else {
+            fatalError("Something horrible has happened")
         }
-
-        MockRepository.repoUpdated?(self)
+        return mockTag
     }
 
-    mutating func commit(tree treeOID: ObjectID, parents: [Commitish], message: String, signature: Signature, signingCallback: ((String) throws -> String)?) throws -> Commitish {
+    mutating func commit(tree treeOID: ObjectID, parents: [Commitish], message: String, signature: Signature, signingCallback: Repository.SigningCallback?) throws -> Commitish {
         let commit = MockCommit(
             oid: .random(),
             parentOIDs: parents.map(\.oid),
@@ -422,16 +336,71 @@ struct MockRepository: Repositoryish {
         return commit
     }
 
-    func reference(named: String) throws -> ReferenceType {
+    mutating func push(remote remoteName: String, options: PushOptions, reference: ReferenceType) throws {
+        switch reference {
+        case let localBranch as MockBranch:
+            guard let commit = try commit(localBranch.oid) as? MockCommit else {
+                fatalError("Invariant violation: commit is not a mock object")
+            }
+
+            let mockRemote: MockBranch = .branch(
+                name: "refs/remotes/\(remoteName)/\(localBranch.name)",
+                head: commit
+            )
+
+            remoteBranches[mockRemote] = try commits(from: localBranch.oid, since: nil).map {
+                guard let commit = $0 as? MockCommit else {
+                    fatalError("Invariant violation: commit is not a mock object")
+                }
+                return commit
+            }
+            fallthrough
+        case is MockTagReference:
+            pushes.append((remoteName, reference))
+        default:
+            fatalError("Test invariant violation: unhandled type \(type(of: reference)) in \(#function)")
+        }
+
+        MockRepository.repoUpdated?(self)
+    }
+
+    func references() throws -> [ReferenceType] {
+        Array(localBranches.keys) + Array(remoteBranches.keys) + tags
+    }
+
+    func references(withPrefix prefix: String) throws -> [ReferenceType] {
+        try references().filter { $0.longName.hasPrefix(prefix) }
+    }
+
+    func blob(_ oid: ObjectID) throws -> Blob {
         fatalError("Not yet implemented")
     }
 
-    func object(parsing: String) throws -> ObjectType {
-        fatalError("Not yet implemented")
+    func reference(named name: String) throws -> ReferenceType {
+        guard let first = try references().first(where: {
+            $0.longName == name
+        }) else {
+            throw GitError(code: .notFound, detail: .reference, description: "Reference not found")
+        }
+        return first
+    }
+
+    func object(parsing string: String) throws -> ObjectType {
+        guard let oid = ObjectID(string: string) else {
+            fatalError("OID parsing is not implemented :)")
+        }
+        return try object(oid)
     }
 
     func object(_ oid: ObjectID) throws -> ObjectType {
-        fatalError("Not yet implemented")
+        if let tagReference = tags.first(where: { $0.tagOid == oid }),
+           case let .annotated(_, tag) = tagReference {
+            return tag
+        } else if let object = objects[oid] {
+            return object
+        } else {
+            throw GitError(code: .notFound, detail: .object, description: "Mock object not found.")
+        }
     }
 
     func readNoteCommit(for oid: ObjectID, commit: Commitish) throws -> Note {
@@ -667,31 +636,31 @@ extension MockBranch {
 }
 
 extension MockTagReference {
-    static let first: Self = .lightweight(name: "0.0.1", tagging: .developCommit(indexFromRoot: 3))
-    static let notAVersion: Self = .lightweight(name: "not-a-version", tagging: .developCommit(indexFromRoot: 2))
-    static let firstPrerelease: Self = .lightweight(name: "0.0.2-rc.1", tagging: .developCommit(indexFromRoot: 4))
-    static let secondPrerelease: Self = .lightweight(name: "0.0.2-rc.2", tagging: .developCommit(indexFromRoot: 5))
-    static let secondRelease: Self = .lightweight(name: "0.1.0", tagging: .developCommit(indexFromRoot: 6))
-    static let thirdReleaseNotOnDevelop: Self = .lightweight(name: "0.0.2", tagging: .hotfixNotOnDevelop)
+    static let first: Self = .annotated(name: "0.0.1", tagging: .developCommit(indexFromRoot: 3))
+    static let notAVersion: Self = .annotated(name: "not-a-version", tagging: .developCommit(indexFromRoot: 2))
+    static let firstPrerelease: Self = .annotated(name: "0.0.2-rc.1", tagging: .developCommit(indexFromRoot: 4))
+    static let secondPrerelease: Self = .annotated(name: "0.0.2-rc.2", tagging: .developCommit(indexFromRoot: 5))
+    static let secondRelease: Self = .annotated(name: "0.1.0", tagging: .developCommit(indexFromRoot: 6))
+    static let thirdReleaseNotOnDevelop: Self = .annotated(name: "0.0.2", tagging: .hotfixNotOnDevelop)
 
-    static let firstTrainRelease: Self = .lightweight(name: "train/0.1.0", tagging: .developCommit(indexFromRoot: 2))
-    static let firstTrainPrerelease: Self = .lightweight(name: "train/0.1.1-rc.1", tagging: .developCommit(indexFromRoot: 3))
-    static let secondTrainRelease: Self = .lightweight(name: "train/0.1.1", tagging: .developCommit(indexFromRoot: 5))
+    static let firstTrainRelease: Self = .annotated(name: "train/0.1.0", tagging: .developCommit(indexFromRoot: 2))
+    static let firstTrainPrerelease: Self = .annotated(name: "train/0.1.1-rc.1", tagging: .developCommit(indexFromRoot: 3))
+    static let secondTrainRelease: Self = .annotated(name: "train/0.1.1", tagging: .developCommit(indexFromRoot: 5))
 
     static func lightweight(name: String, tagging commit: MockCommit) -> Self {
         .lightweight("refs/tags/\(name)", commit.oid)
     }
 
-    static func annotated(name: String, message: String, tagging commit: MockCommit) -> Self {
+    static func annotated(name: String, message: String? = nil, tagging commit: MockCommit) -> Self {
         let longName = "refs/tags/\(name)"
         return .annotated(
             longName,
             .init(
-                name: longName,
-                oid: commit.oid,
+                name: name,
+                oid: .random(),
                 tagger: .cookie,
                 target: .commit(commit.oid),
-                message: message
+                message: message ?? "Tag \(name)"
             )
         )
     }

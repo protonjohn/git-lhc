@@ -19,15 +19,6 @@
       }
     },
     {
-      "identity" : "plistutil",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/protonjohn/plistutil",
-      "state" : {
-        "revision" : "ceb5ba41d463d0acffb44551cb9f6a6e177649e9",
-        "version" : "0.1.0-beta.1"
-      }
-    },
-    {
       "identity" : "spectre",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/kylef/Spectre.git",
@@ -104,7 +95,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/protonjohn/SwiftGit2",
       "state" : {
-        "revision" : "870e5e9c1f4ced10f41af4b240b57367c2bd155a"
+        "revision" : "0a8a4fae6debbd1d504e7a1ebe961b90f1d33a1a"
       }
     },
     {

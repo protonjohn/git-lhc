@@ -1,5 +1,5 @@
 //
-//  CreateReleaseTests.swift
+//  NewTests.swift
 //  
 //
 //  Created by John Biggs on 26.10.23.
@@ -12,32 +12,27 @@ import XCTest
 @testable import LHCInternal
 @testable import git_lhc
 
-class CreateReleaseTests: LHCTestCase {
-    func invoke(_ args: [String] = []) async throws -> CreateRelease {
-        var createRelease = try CreateRelease.parse(args)
-        try await createRelease.run()
-        return createRelease
+class NewTests: LHCTestCase {
+    func invoke(_ args: [String] = []) throws -> New {
+        var new = try New.parse(args)
+        try new.run()
+        return new
     }
 
-    func subtestCreatingNewProdRelease(train: String?) async throws {
+    func subtestCreatingNewProdRelease(train: String?) throws {
         var args = ["--push"]
         if let train {
             args.append(contentsOf: ["--train", train])
         }
 
-        var invocation = try await invoke(args)
+        var invocation = try invoke(args)
         let options = try invocation.parent.options?.get()
 
         XCTAssertEqual(repoUnderTest.pushes.count, 1)
-        guard let first = repoUnderTest.pushes.first,
-              case let .sshPath(publicKeyPath, privateKeyPath, passphrase) = first.0 else {
+        guard let first = repoUnderTest.pushes.first else {
             XCTFail("Push object was missing or has incorrect credentials")
             return
         }
-
-        XCTAssertEqual(privateKeyPath, "/Users/test/.ssh/id_rsa")
-        XCTAssertEqual(publicKeyPath, "/Users/test/.ssh/id_rsa.pub")
-        XCTAssertEqual(passphrase, "foo bar")
 
         guard let reference = first.1 as? MockTagReference,
               case let .annotated(name, tag) = reference else {
@@ -52,38 +47,15 @@ class CreateReleaseTests: LHCTestCase {
 
         let expectedTagName = "refs/tags/\(options?.tagPrefix ?? "")1.0.0"
         XCTAssertEqual(name, expectedTagName)
-        XCTAssertEqual(tag.oid, head.oid)
+        XCTAssertEqual(tag.target.oid, head.oid)
         
         if let train = options?.train {
-            XCTAssertEqual(tag.message, """
-            release: \(train) 1.0.0
-
-            - Release notes content
-            """)
+            XCTAssertEqual(tag.message, "release: \(train) 1.0.0")
         }
     }
 
-    func testCreatingNewProdRelease() async throws {
-        Internal.jiraClient = MockJiraClient.init(issues: [
-            .init(
-                id: "12345",
-                summary: nil,
-                fields: .init(
-                    assignee: nil,
-                    summary: "",
-                    status: .init(
-                        name: "",
-                        description: nil
-                    ),
-                    fixVersions: nil,
-                    description: "",
-                    created: .now,
-                    extraFields: [MockJiraClient.customField: "Release notes content"]
-                )
-            )
-        ])
-
-        try await subtestCreatingNewProdRelease(train: nil)
+    func testCreatingNewProdRelease() throws {
+        try subtestCreatingNewProdRelease(train: nil)
 
         Configuration.getConfig = { _ in
             try? .success(.init(parsing: """
@@ -91,32 +63,26 @@ class CreateReleaseTests: LHCTestCase {
             tag_prefix = train/
             project_id_prefix = TEST-
             project_id_trailer = Project-Id
-            jira_release_notes_field = \(MockJiraClient.customField)
             commit_categories = ["feat", "fix", "test", "build", "ci"]
             """))
         }
 
-        try await subtestCreatingNewProdRelease(train: "test")
+        try subtestCreatingNewProdRelease(train: "test")
     }
 
-    func subtestCreatingPreleaseForVersion(train: String? = nil, channel: ReleaseChannel, prereleaseBuild: String = "1") async throws -> CreateRelease {
+    func subtestCreatingPreleaseForVersion(train: String? = nil, channel: ReleaseChannel, prereleaseBuild: String = "1") throws -> New {
         var args = ["--push", "--channel", channel.rawValue]
         if let train {
             args.append(contentsOf: ["--train", train])
         }
-        var invocation = try await invoke(args)
+        var invocation = try invoke(args)
         let options = try invocation.parent.options?.get()
 
         XCTAssertEqual(repoUnderTest.pushes.count, 1)
-        guard let first = repoUnderTest.pushes.first,
-              case let .sshPath(publicKeyPath, privateKeyPath, passphrase) = first.0 else {
+        guard let first = repoUnderTest.pushes.first else {
             XCTFail("Push object was missing or has incorrect credentials")
             return invocation
         }
-
-        XCTAssertEqual(privateKeyPath, "/Users/test/.ssh/id_rsa")
-        XCTAssertEqual(publicKeyPath, "/Users/test/.ssh/id_rsa.pub")
-        XCTAssertEqual(passphrase, "foo bar")
 
         guard let reference = first.1 as? MockTagReference,
               case let .annotated(name, tag) = reference else {
@@ -130,7 +96,7 @@ class CreateReleaseTests: LHCTestCase {
         }
         let expectedTagName = "refs/tags/\(options?.tagPrefix ?? "")1.0.0-\(channel.rawValue).\(prereleaseBuild)"
         XCTAssertEqual(name, expectedTagName)
-        XCTAssertEqual(tag.oid, head.oid)
+        XCTAssertEqual(tag.target.oid, head.oid)
 
         return invocation
     }
@@ -143,7 +109,10 @@ class CreateReleaseTests: LHCTestCase {
             parents: [commit],
             message: "fix(fix): fixy fix",
             signature: .cookie,
-            signingCallback: { "signature of \($0)" }
+            signingCallback: {
+                "signature of \(String(data: $0, encoding: .utf8) ?? "")"
+                    .data(using: .utf8)!
+            }
         )
         var branch = try repo.currentBranch() as! MockBranch
         branch.oid = nextCommit.oid
@@ -154,21 +123,21 @@ class CreateReleaseTests: LHCTestCase {
 
     func commitAndTag(repo: inout MockRepository, tagName: String) throws -> (MockCommit, MockTagReference) {
         let nextCommit = try commitAndSetHEAD(repo: &repo)
-        let tag: MockTagReference = .lightweight(name: tagName, tagging: nextCommit)
+        let tag: MockTagReference = .annotated(name: tagName, tagging: nextCommit)
         repo.tags.append(tag)
         return (nextCommit, tag)
     }
 
-    func testCreatingPrereleasesForVersion() async throws {
+    func testCreatingPrereleasesForVersion() throws {
         for channel in ReleaseChannel.prereleaseChannels {
-            _ = try await subtestCreatingPreleaseForVersion(channel: channel)
+            _ = try subtestCreatingPreleaseForVersion(channel: channel)
 
             let oldRepo = MockRepository.mock
             var repo = oldRepo
             _ = try commitAndTag(repo: &repo, tagName: "1.0.0-\(channel.rawValue).1")
 
             MockRepository.mock = repo
-            _ = try await subtestCreatingPreleaseForVersion(channel: channel, prereleaseBuild: "2")
+            _ = try subtestCreatingPreleaseForVersion(channel: channel, prereleaseBuild: "2")
             MockRepository.mock = oldRepo
         }
 
@@ -182,7 +151,7 @@ class CreateReleaseTests: LHCTestCase {
         }
 
         for channel in ReleaseChannel.prereleaseChannels {
-            var invocation = try await subtestCreatingPreleaseForVersion(train: train, channel: channel)
+            var invocation = try subtestCreatingPreleaseForVersion(train: train, channel: channel)
             let options = try invocation.parent.options?.get()
 
             let oldRepo = MockRepository.mock
@@ -190,7 +159,7 @@ class CreateReleaseTests: LHCTestCase {
             _ = try commitAndTag(repo: &repo, tagName: "\(options?.tagPrefix ?? "")1.0.0-\(channel.rawValue).1")
 
             MockRepository.mock = repo
-            _ = try await subtestCreatingPreleaseForVersion(train: train, channel: channel, prereleaseBuild: "2")
+            _ = try subtestCreatingPreleaseForVersion(train: train, channel: channel, prereleaseBuild: "2")
             MockRepository.mock = oldRepo
         }
     }

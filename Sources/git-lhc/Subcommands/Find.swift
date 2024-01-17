@@ -94,7 +94,8 @@ struct Find: ParsableCommand {
             releases: releases,
             format: format,
             includeCommitHashes: true,
-            includeProjectIds: true
+            includeProjectIds: true,
+            includeChecklists: true
         )
 
         if let outputPath = output?.path(), let data = result.data {

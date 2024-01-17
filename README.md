@@ -36,7 +36,7 @@ instead of including them in your commit subjects. (It saves precious characters
 
 ### Releasing
 
-When you're ready to create a release of your project, use `lhc create-release`. If you have tag pipelines set up,
+When you're ready to create a release of your project, use `git-lhc new`. If you have tag pipelines set up,
 you can automate your release deployments in CI by checking the prerelease identifiers in the semantic version to know
 which release channel to deploy to (`alpha`, `beta`, `rc`, or `prod`, for example). Use the command's `--push` option
 to automatically push the resulting tag to the default remote, and your CI can take care of the rest for you.

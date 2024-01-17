@@ -7,7 +7,6 @@
 
 import Foundation
 import XCTest
-import CodingCollection
 import Yams
 import LHCInternal
 import LHC
@@ -17,13 +16,13 @@ import LHC
 @testable import git_lhc
 
 class EmbedTests: LHCTestCase {
-    static let structuredData: CodingCollection = [
+    static let structuredData: CodingDictionary = [
         "CFBundleVersion": "Version",
         "CFBundleShortVersionString": "VersionString",
         "BuildIdentifiers": "Foo",
         "Irrelevant key": 2,
         "CFBundleExplodes": true,
-        "InnerList": [ "hello", "world", 2, 3, true, 3.14159 ]
+        "InnerList": [ "hello", "world", 2, 3, true, 3.14159 ] as [Any]
         // leave some missing to see how it handles missing keys
     ]
 
@@ -100,29 +99,26 @@ class EmbedTests: LHCTestCase {
             """)
 
         guard let jsonContents = Internal.fileManager.contents(atPath: "\(Self.repoPath)/version.json"),
-              let jsonCollection = try? JSONDecoder().decode(CodingCollection.self, from: jsonContents),
-              case let .dictionary(jsonDict) = jsonCollection else {
+              let jsonDict = try? JSONDecoder().decode(CodingDictionary.self, from: jsonContents) else {
             throw "No version file (or corrupted version file) at version.json"
         }
 
         guard let yamlContents = Internal.fileManager.contents(atPath: "\(Self.repoPath)/version.yml"),
-              let yamlCollection = try? YAMLDecoder().decode(CodingCollection.self, from: yamlContents),
-              case let .dictionary(yamlDict) = yamlCollection else {
+              let yamlDict = try? YAMLDecoder().decode(CodingDictionary.self, from: yamlContents) else {
             throw "No version file (or corrupted version file) at version.yml"
         }
 
         guard let plistContents = Internal.fileManager.contents(atPath: "\(Self.repoPath)/version.plist"),
-              let plistCollection = try? PropertyListDecoder().decode(CodingCollection.self, from: plistContents),
-              case let .dictionary(plistDict) = plistCollection else {
+              let plistDict = try? PropertyListDecoder().decode(CodingDictionary.self, from: plistContents) else {
             throw "No version file (or corrupted version file) at version.plist"
         }
 
         for dict in [jsonDict, plistDict, yamlDict] {
-            XCTAssertEqual(dict["CFBundleVersion"], .string(fullVersion))
-            XCTAssertEqual(dict["CFBundleShortVersionString"], .string(version))
-            XCTAssertEqual(dict["Identifiers"], .string(identifiers))
-            XCTAssertEqual(dict["PrereleaseIdentifiers"], .string(prereleaseIdentifiers))
-            XCTAssertEqual(dict["BuildIdentifiers"], .string(buildIdentifiers))
+            XCTAssertEqual(dict["CFBundleVersion"] as? String, fullVersion)
+            XCTAssertEqual(dict["CFBundleShortVersionString"] as? String, version)
+            XCTAssertEqual(dict["Identifiers"] as? String, identifiers)
+            XCTAssertEqual(dict["PrereleaseIdentifiers"] as? String, prereleaseIdentifiers)
+            XCTAssertEqual(dict["BuildIdentifiers"] as? String, buildIdentifiers)
         }
     }
 

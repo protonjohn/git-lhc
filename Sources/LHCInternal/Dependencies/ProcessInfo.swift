@@ -8,8 +8,10 @@
 import Foundation
 
 public protocol ProcessInfoish {
+    var arguments: [String] { get }
     var environment: [String: String] { get }
     var processIdentifier: Int32 { get }
+    var globallyUniqueString: String { get }
 }
 
 extension ProcessInfo: ProcessInfoish {

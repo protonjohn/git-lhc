@@ -182,7 +182,7 @@ struct Lint: ParsableCommand, VerboseCommand {
 
         printIfVerbose("Linting trailers...")
 
-        let trailers: [Trailerish]
+        let trailers: [Commit.Trailer]
         do {
             trailers = try commit.trailers
         } catch {

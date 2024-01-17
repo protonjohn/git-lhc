@@ -10,7 +10,6 @@ import ArgumentParser
 import Yams
 import Version
 import SwiftGit2
-import CodingCollection
 import LHC
 import LHCInternal
 
@@ -66,7 +65,7 @@ struct Embed: ParsableCommand {
         help: "If specified, ignore the git history and force the version to a particular value.",
         transform: { (versionString: String) throws -> Version in
             guard let version = Version(versionString) else {
-                throw CreateReleaseError.invalidVersion(versionString)
+                throw NewError.invalidVersion(versionString)
             }
 
             return version
@@ -105,41 +104,34 @@ struct Embed: ParsableCommand {
         }
     }
 
-    func decode(contents: Data, format: Format) throws -> [String: CodingCollection] {
-        let collection: CodingCollection
+    func decode(contents: Data, format: Format) throws -> [String: Any] {
+        let versionFile: CodingDictionary
         switch format {
         case .json:
-            collection = try JSONDecoder()
-                .decode(CodingCollection.self, from: contents)
+            versionFile = try JSONDecoder()
+                .decode(type(of: versionFile), from: contents)
         case .yaml:
-            collection = try YAMLDecoder()
-                .decode(CodingCollection.self, from: contents)
+            versionFile = try YAMLDecoder()
+                .decode(type(of: versionFile), from: contents)
         case .plist:
-            collection = try PropertyListDecoder()
-                .decode(CodingCollection.self, from: contents)
+            versionFile = try PropertyListDecoder()
+                .decode(type(of: versionFile), from: contents)
         default:
             fatalError("Unsupported format \(format)")
         }
-
-        guard case .dictionary(let dictionary) = collection else {
-            throw ReplaceVersionsError.notADictionary(format)
-        }
-
-        return Dictionary(uniqueKeysWithValues: dictionary.compactMap({
-            guard case let .string(string) = $0.key else { return nil }
-            return (string, $0.value)
-        }))
+        return versionFile.rawValue
     }
 
-    func encode(dictionary: [String: CodingCollection], format: Format) throws -> Data? {
+    func encode(dictionary: [String: Any], format: Format) throws -> Data? {
+        let versionFile = CodingDictionary(rawValue: dictionary)
         let result: StringOrData
         switch format {
         case .json:
-            result = try .init(JSONEncoder().encode(dictionary))
+            result = try .init(JSONEncoder().encode(versionFile))
         case .yaml:
-            result = try .init(YAMLEncoder().encode(dictionary))
+            result = try .init(YAMLEncoder().encode(versionFile))
         case .plist:
-            result = try .init(PropertyListEncoder().encode(dictionary))
+            result = try .init(PropertyListEncoder().encode(versionFile))
         default:
             fatalError("Unsupported format \(format)")
         }
@@ -154,7 +146,7 @@ struct Embed: ParsableCommand {
         format: Format
     ) throws {
         var dictionary = try decode(contents: contents, format: format)
-        dictionary[key] = .string(value)
+        dictionary[key] = value
         guard let encoded = try encode(dictionary: dictionary, format: format) else {
             throw ReplaceVersionsError.encodingError
         }

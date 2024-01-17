@@ -13,16 +13,17 @@ import LHC
 import LHCInternal
 
 @main
-struct LHC: AsyncParsableCommand {
-    static var configuration = CommandConfiguration(
+public struct LHC: AsyncParsableCommand {
+    public static var configuration = CommandConfiguration(
         commandName: "git-lhc",
         abstract: "A tool for git repositories that use conventional commits and semantic versioning.",
         subcommands: [
             Config.self,
+            Check.self,
             Attr.self,
             Lint.self,
             Describe.self,
-            CreateRelease.self,
+            New.self,
             Find.self,
             Embed.self,
         ]
@@ -64,6 +65,8 @@ struct LHC: AsyncParsableCommand {
             commandLineTrain ?? LHCEnvironment.trainName.value
         }()
 
+        var commandConfigDefines: Configuration.Defines?
+
         /// The git configuration object for the repository.
         lazy var gitConfig: Result<any Configish, Error>? = {
             do {
@@ -89,12 +92,20 @@ struct LHC: AsyncParsableCommand {
             }
         }()
 
+        lazy var evaluatedConfig: Result<Configuration.Defines, Error>? = {
+            guard let config else { return nil }
+            do {
+                return try .success(config.get().eval(train: train, channel: channel, define: commandConfigDefines))
+            } catch {
+                return .failure(error)
+            }
+        }()
+
         /// The options generated from the configuration file with the above train and channel applied.
         lazy var options: Result<Configuration.Options, Error>? = {
-            guard let config else { return nil }
-
+            guard let evaluatedConfig else { return nil }
             do {
-                return try .success(config.get().eval(train: train, channel: channel).options)
+                return try .success(evaluatedConfig.get().options)
             } catch {
                 return .failure(error)
             }
@@ -123,7 +134,9 @@ struct LHC: AsyncParsableCommand {
             }
 
             for train in trains {
-                result[train] = try? config?.get().eval(train: train, channel: channel).options
+                result[train] = try? config?.get()
+                    .eval(train: train, channel: channel, define: commandConfigDefines)
+                    .options
             }
 
             return result
@@ -133,14 +146,19 @@ struct LHC: AsyncParsableCommand {
             releases: [Release],
             format: ReleaseFormat,
             includeCommitHashes: Bool,
-            includeProjectIds: Bool
+            includeProjectIds: Bool,
+            includeChecklists: Bool
         ) throws -> StringOrData {
             let options = try? options?.get()
             var encodedValue = releases
 
             if !includeCommitHashes || !includeProjectIds {
                 encodedValue = encodedValue.map {
-                    $0.redacting(commitHashes: !includeCommitHashes, projectIds: !includeProjectIds)
+                    $0.redacting(
+                        commitHashes: !includeCommitHashes,
+                        projectIds: !includeProjectIds,
+                        checklists: !includeChecklists  
+                    )
                 }
             }
 
@@ -176,20 +194,75 @@ struct LHC: AsyncParsableCommand {
         }
     }
 
-    struct Define: ExpressibleByArgument {
+    struct Define {
         public let property: Configuration.Property
         public let value: String
+    }
+
+    public init() {
     }
 }
 
 extension LHC {
-    static func sign(_ contents: String, options: SigningOptions) throws -> String {
-        let signingCommand = options.signingCommand.joined(separator: " ")
+    static func sign(
+        _ contents: Data,
+        options: SigningOptions,
+        completionHandler: @escaping (Result<Data?, Error>) -> ()
+    ) {
+        Task.detached {
+            do {
+                let signingCommand = options.signingCommand
+                let status = Pipe()
+                let input = Pipe()
+                let output = Pipe()
 
-        guard let output = try Internal.spawnAndWaitWithOutput(command: signingCommand, input: contents) else {
-            return ""
+                try input.fileHandleForWriting.write(contentsOf: contents)
+                try input.fileHandleForWriting.close()
+
+                for await event in try Internal.shell.run(
+                    command: signingCommand,
+                    ttyEnvironmentVariable: "GPG_TTY",
+                    extraFileDescriptors: [
+                        SigningOptions.statusDescriptor: status.fileHandleForWriting,
+                        SigningOptions.inputDescriptor: input.fileHandleForReading,
+                        SigningOptions.outputDescriptor: output.fileHandleForWriting
+                    ]
+                ) {
+                    guard case .exit(let code) = try event.get() else {
+                        continue
+                    }
+
+                    guard code == 0 else {
+                        throw Shell.Exit(rawValue: code)
+                    }
+
+                    break
+                }
+
+                // Close the symmetric end of the pipe so the read will complete
+                try output.fileHandleForWriting.close()
+                let data = try output.fileHandleForReading.readToEnd()
+                completionHandler(.success(data))
+            } catch {
+                completionHandler(.failure(error))
+            }
         }
-        return String(data: output, encoding: .utf8) ?? ""
+    }
+
+    @available(*, noasync, message: "This function is not available from an async context.")
+    static func sign(_ contents: Data, options: SigningOptions) throws -> Data? {
+        var result: Result<Data?, Error>?
+
+        let group = DispatchGroup()
+        group.enter()
+        sign(contents, options: options) {
+            result = $0
+            group.leave()
+        }
+        group.wait()
+
+        let value = try result?.get()
+        return value
     }
 }
 
@@ -199,14 +272,15 @@ extension ConventionalCommit.Trailer: ExpressibleByArgument {
 
         let key = String(components.first!)
         let value = components.count > 1 ? String(components[1]) : "true"
-        guard let trailer = Self(parsing: "\(key): \(value)") else {
-            return nil
-        }
-        self = trailer
+
+        guard let (_, trailers) = try? Self.trailers(from: "\(key): \(value)"),
+              !trailers.isEmpty else { return nil }
+
+        self = trailers.first!
     }
 }
 
-extension LHC.Define {
+extension LHC.Define: ExpressibleByArgument {
     init?(argument: String) {
         let components = argument.split(separator: "=", maxSplits: 1)
 
@@ -235,4 +309,14 @@ extension URL {
         }
         return url
     }
+}
+
+extension ReleaseChannel: ExpressibleByArgument {
+}
+
+extension ReleaseFormat: ExpressibleByArgument {
+}
+
+extension ExpressibleByArgument where Self: CaseIterable & RawRepresentable, RawValue == String {
+    static var possibleValues: String { allCases.map(\.rawValue).humanReadableDelineatedString }
 }

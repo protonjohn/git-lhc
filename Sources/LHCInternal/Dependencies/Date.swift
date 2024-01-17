@@ -19,7 +19,7 @@ extension Internal {
     public static func gitDateString() -> String {
         let formatter = DateFormatter()
         // Sun Nov 12 16:20:42 2023 +0100
-        formatter.dateFormat = "EEE MMM d HH:MM:SS YYYY Z"
+        formatter.dateFormat = "EEE MMM d HH:mm:ss YYYY Z"
         return formatter.string(from: Self.date())
     }
 }

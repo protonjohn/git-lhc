@@ -11,17 +11,16 @@ let package = Package(
         .executable(
             name: "git-lhc",
             targets: ["git-lhc"]
-        ),
+        )
     ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
         // .package(url: /* package url */, from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", exact: "1.2.3"),
         .package(url: "https://github.com/jpsim/Yams", exact: "5.0.6"),
-        .package(url: "https://github.com/protonjohn/SwiftGit2", revision: "870e5e9c1f4ced10f41af4b240b57367c2bd155a"),
+        .package(url: "https://github.com/protonjohn/SwiftGit2", revision: "0a8a4fae6debbd1d504e7a1ebe961b90f1d33a1a"),
         .package(url: "https://github.com/mxcl/Version", exact: "2.0.1"),
         .package(url: "https://github.com/pointfreeco/swift-parsing", exact: "0.13.0"),
-        .package(url: "https://github.com/protonjohn/plistutil", exact: "0.1.0-beta.1"),
         .package(url: "https://github.com/apple/swift-docc-plugin", exact: "1.0.0"),
         .package(url: "https://github.com/almazrafi/DictionaryCoder", exact: "1.1.0"),
         .package(url: "https://github.com/stencilproject/Stencil", exact: "0.15.1"),
@@ -45,10 +44,11 @@ let package = Package(
             name: "LHC",
             dependencies: [
                 "Version",
+                "Stencil",
                 "SwiftGit2",
                 "LHCInternal",
                 "DictionaryCoder",
-                "Stencil",
+                .product(name: "Markdown", package: "swift-markdown"),
                 .product(name: "Parsing", package: "swift-parsing")
             ],
             resources: [
@@ -60,8 +60,12 @@ let package = Package(
                 "Version",
                 "SwiftGit2",
                 "Yams",
-                .product(name: "CodingCollection", package: "plistutil"),
-                ]
+                "LHCInternalC"
+            ]
+        ),
+        .target(
+            name: "LHCInternalC",
+            dependencies: []
         ),
         .testTarget(
             name: "LHCTests",

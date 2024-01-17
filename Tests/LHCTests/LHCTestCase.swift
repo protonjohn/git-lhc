@@ -20,34 +20,32 @@ class LHCTestCase: XCTestCase {
     var repoUnderTest: MockRepository = .mock
 
     var testOutput: String {
-        let printer = Internal.printer as! MockPrinter
-        return printer.printedItems.filter { !$0.error }
+        let shell = Internal.shell as! MockShell
+        return shell.printedItems.filter { !$0.error }
             .map(\.0)
             .joined()
     }
 
     var errorOutput: String {
-        let printer = Internal.printer as! MockPrinter
-        return printer.printedItems.filter(\.error)
+        let shell = Internal.shell as! MockShell
+        return shell.printedItems.filter(\.error)
             .map(\.0)
             .joined()
     }
 
     override func invokeTest() {
-        let printer = Internal.printer
+        let shell = Internal.shell
         let openRepo = Internal.openRepo
         let mockRepo = MockRepository.mock
         let repoUpdated = MockRepository.repoUpdated
         let oldFileManager = Internal.fileManager
         let getConfig = Configuration.getConfig
-        let readPassphrase = Internal.readPassphrase
         let promptUser = Internal.promptUser
         let processInfo = Internal.processInfo
-        let jiraClient = Internal.jiraClient
         let isInteractive = Internal.isInteractiveSession
+        let registerTransports = Internal.registerTransports
 
         Internal.processInfo = MockProcessInfo.mock
-        Internal.jiraClient = MockJiraClient.mock
         Internal.isInteractiveSession = { true }
 
         var fileManager = MockFileManager.mock
@@ -61,17 +59,15 @@ class LHCTestCase: XCTestCase {
             return .success(MockRepository.mock)
         }
 
-        Internal.readPassphrase = { _ in
-            return "foo bar"
+        Internal.registerTransports = {
+            
         }
 
         Internal.promptUser = { _ in
             return "y"
         }
 
-        Internal.spawnProcessAndWaitForTermination = { _, _, _, _, _, _ in }
-
-        Internal.printer = MockPrinter.mock
+        Internal.shell = MockShell.mock
 
         MockRepository.repoUpdated = { [weak self] in
             self?.repoUnderTest = $0
@@ -84,12 +80,11 @@ class LHCTestCase: XCTestCase {
         MockRepository.mock = mockRepo
         MockRepository.repoUpdated = repoUpdated
         Internal.openRepo = openRepo
-        Internal.printer = printer
-        Internal.readPassphrase = readPassphrase
+        Internal.shell = shell
         Internal.promptUser = promptUser
         Internal.processInfo = processInfo
-        Internal.jiraClient = jiraClient
         Internal.isInteractiveSession = isInteractive
+        Internal.registerTransports = registerTransports
     }
 
     func setEnv<E: EnvironmentVariable>(_ env: E, to value: String) {

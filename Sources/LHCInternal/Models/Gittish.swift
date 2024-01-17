@@ -15,26 +15,29 @@ import System
 
 public typealias ObjectID = OID
 
+fileprivate var tagsByTargetCached: [ObjectID: [TagReferenceish]]?
+
 public protocol Repositoryish {
-    var defaultSignature: Signature { get throws }
     var defaultNotesRefName: String { get throws }
 
     var config: any Configish { get throws }
+    var defaultSignature: Signature { get throws }
 
     func HEAD() throws -> ReferenceType
     mutating func setHEAD(_ oid: ObjectID) throws
     func commit(_ oid: ObjectID) throws -> Commitish
-    func commits(in: Branchish) -> CommitishIterator
     func reference(named: String) throws -> ReferenceType
+    func references(withPrefix prefix: String) throws -> [ReferenceType]
+
     func localBranch(named: String) throws -> Branchish
     func remoteBranch(named: String) throws -> Branchish
     func tag(named: String) throws -> TagReferenceish
     func tag(_ oid: ObjectID) throws -> Tagish
     func note(for oid: ObjectID, notesRef: String?) throws -> Note
-    mutating func notes(notesRef: String?) throws -> LHCNoteIterator
 
     func object(_ oid: ObjectID) throws -> ObjectType
     func object(parsing: String) throws -> ObjectType
+    func blob(_ oid: ObjectID) throws -> Blob
 
     mutating func createNote(
         for oid: OID,
@@ -44,7 +47,7 @@ public protocol Repositoryish {
         noteCommitMessage: String?,
         notesRefName: String?,
         force: Bool,
-        signingCallback: ((String) throws -> String)?
+        signingCallback: Repository.SigningCallback?
     ) throws -> Note
 
     func readNoteCommit(for oid: ObjectID, commit: Commitish) throws -> Note
@@ -55,7 +58,7 @@ public protocol Repositoryish {
         committer: Signature,
         noteCommitMessage: String?,
         notesRefName: String?,
-        signingCallback: ((String) throws -> String)?
+        signingCallback: Repository.SigningCallback?
     ) throws
 
     mutating func createTag(
@@ -64,18 +67,18 @@ public protocol Repositoryish {
         signature: Signature,
         message: String?,
         force: Bool,
-        signingCallback: ((String) throws -> String)?
-    ) throws -> TagReferenceish
+        signingCallback: Repository.SigningCallback?
+    ) throws -> Tagish
 
     func allTags() throws -> [TagReferenceish]
-    mutating func push(remote remoteName: String, credentials: Credentials, reference: ReferenceType) throws
+    mutating func push(remote remoteName: String, options: PushOptions, reference: ReferenceType) throws
 
     mutating func commit(
         tree treeOID: ObjectID,
         parents: [Commitish],
         message: String,
         signature: Signature,
-        signingCallback: ((String) throws -> String)?
+        signingCallback: Repository.SigningCallback?
     ) throws -> Commitish
 }
 
@@ -100,31 +103,10 @@ extension Repositoryish {
     }
 
     public func commits(since start: ObjectID?) throws -> (branch: Branchish?, commits: [Commitish]) {
-        if let branch = try? currentBranch() {
-            return try (branch, commits(on: branch, since: start))
-        }
+        let branch = try? currentBranch()
+        let head = try branch ?? HEAD()
 
-        let head = try HEAD()
         return try (head as? Branchish, commits(from: head.oid, since: start))
-    }
-
-    public func commits(
-        on branch: Branchish,
-        since start: ObjectID?,
-        where closure: ((Commitish) throws -> Bool)? = nil
-    ) throws -> [Commitish] {
-        var result: [Commitish] = []
-        let branchCommits = commits(in: branch)
-
-        for maybeCommit in branchCommits {
-            guard let commit = try? maybeCommit.get() else { break }
-            guard try closure?(commit) != false else { continue }
-            guard commit.oid != start else { return result }
-            result.append(commit)
-        }
-
-        guard let start else { return result }
-        throw RepositoryError.referenceNotFoundStartingFromLeaf(reference: start, leaf: branch.oid)
     }
 
     public func commits(from oid: ObjectID, since start: ObjectID?, where closure: ((Commitish) throws -> Bool)? = nil) throws -> [Commitish] {
@@ -177,13 +159,19 @@ extension Repositoryish {
         return false
     }
 
+    /// - Important: the result of this function is cached. Make sure to update the dictionary if modifying any tags.
     public func tagsByTarget() throws -> [ObjectID: [TagReferenceish]] {
-        return try allTags().reduce(into: [:], { partialResult, tag in
+        if let tagsByTargetCached {
+            return tagsByTargetCached
+        }
+
+        tagsByTargetCached = try allTags().reduce(into: [:], { partialResult, tag in
             if partialResult[tag.oid] == nil {
                 partialResult[tag.oid] = []
             }
-            partialResult[tag.oid]!.append(tag)
+            partialResult[tag.oid as ObjectID]!.append(tag)
         })
+        return tagsByTargetCached!
     }
 
     public var defaultNotesRef: ReferenceType {
@@ -198,28 +186,199 @@ extension Repositoryish {
         since: ObjectID? = nil,
         where closure: ((Commitish) throws -> Bool)? = nil
     ) throws -> [Commitish] {
-        let commit = try commit(ref.oid)
         return try commits(from: ref.oid, since: since, where: closure)
     }
 
+    /// Read the note commits on a given reference, like `refs/notes/commits`, that match the given closure.
     public func noteCommits(
         on ref: ReferenceType,
         for target: ObjectID,
         since: ObjectID? = nil,
-        where closure: ((Commitish, Note) throws -> Bool)? = nil
-    ) throws -> [(Commitish, Note)] {
+        where closure: ((Commitish, Note?) throws -> Bool)? = nil
+    ) throws -> [(Commitish, Note?)] {
         return try commits(from: ref.oid, since: since)
             .compactMap {
-                guard let note = try? readNoteCommit(for: target, commit: $0) else {
-                    return nil
-                }
-
+                let note = try? readNoteCommit(for: target, commit: $0)
                 guard try closure?($0, note) != false else {
                     return nil
                 }
 
                 return ($0, note)
             }
+    }
+
+    /// Find the most recent commit (or tag) in a given history that has a note in the given notes reference.
+    public func lastNotedObject(
+        from: ObjectID,
+        since: ObjectID? = nil,
+        notesRef: String
+    ) throws -> (ObjectType, Note)? {
+        let tagsByOid = try tagsByTarget()
+        var frontier: Set<ObjectID> = [from]
+        var seen: Set<ObjectID> = []
+        while !frontier.isEmpty {
+            if let since {
+                guard !frontier.contains(since) else {
+                    return nil
+                }
+            }
+
+            for oid in frontier {
+                guard !seen.contains(oid) else { continue }
+                guard let note = try? note(for: oid, notesRef: notesRef) else { continue }
+
+                return try (self.commit(oid), note)
+            }
+
+            seen.formUnion(frontier)
+
+            let tagOids = frontier.flatMap({ tagsByOid[$0] ?? [] }).compactMap(\.tagOid)
+            for tagOid in tagOids {
+                guard !seen.contains(tagOid),
+                   let note = try? note(for: tagOid, notesRef: notesRef) else {
+                    continue
+                }
+                return try (self.tag(tagOid), note)
+            }
+
+            seen.formUnion(tagOids)
+
+            frontier = frontier.reduce(into: Set<ObjectID>()) {
+                let parentOids = try? commit($1).parentOIDs
+                $0.formUnion(parentOids ?? [])
+            }.subtracting(seen)
+        }
+
+        return nil
+    }
+
+    /// Similar to ``lastNotedObject(from:since:notesRef:)``, except it returns an array of commits and tags.
+    public func notedObjects(
+        from: ObjectID,
+        since: ObjectID? = nil,
+        notesRef: String
+    ) throws -> [(ObjectType, Note)] {
+        var result: [(ObjectType, Note)] = []
+
+        let tagsByOid = try tagsByTarget()
+        var frontier: Set<ObjectID> = [from]
+        var seen: Set<ObjectID> = []
+        while !frontier.isEmpty {
+            if let since {
+                guard !frontier.contains(since) else {
+                    break
+                }
+            }
+
+            for oid in frontier {
+                guard !seen.contains(oid) else { continue }
+                guard let note = try? note(for: oid, notesRef: notesRef) else { continue }
+
+                try result.append((self.commit(oid), note))
+            }
+
+            seen.formUnion(frontier)
+
+            let tagOids = frontier.flatMap({ tagsByOid[$0] ?? [] }).compactMap(\.tagOid)
+            for tagOid in tagOids {
+                guard !seen.contains(tagOid),
+                   let note = try? note(for: tagOid, notesRef: notesRef) else {
+                    continue
+                }
+                try result.append((self.tag(tagOid), note))
+            }
+
+            seen.formUnion(tagOids)
+
+            frontier = frontier.reduce(into: Set<ObjectID>()) {
+                let parentOids = try? commit($1).parentOIDs
+                $0.formUnion(parentOids ?? [])
+            }.subtracting(seen)
+        }
+
+        return result
+    }
+
+
+    /// - Warning: if the repository root is something other than `Internal.repoPath`, it's necessary to specify it.
+    public func aliasMap(repositoryRoot: String = Internal.repoPath) throws -> AliasMap {
+        let mailmap: String
+
+        if let blobOidString = try config.mailmapBlob,
+                  let oid = ObjectID(string: blobOidString),
+                  let blob = try? blob(oid),
+                  let contents = String(data: blob.data, encoding: .utf8) {
+            mailmap = contents
+        } else {
+            let fileName = try config.mailmapFile ?? ".mailmap"
+            let mailmapPath = URL(filePath: repositoryRoot)
+                .appending(path: fileName)
+                .absoluteURL
+                .path()
+
+            guard let data = Internal.fileManager.contents(atPath: mailmapPath),
+                  let contents = String(data: data, encoding: .utf8) else {
+                throw POSIXError(.ENOENT)
+            }
+
+            mailmap = contents
+        }
+
+        return try AliasMap(contents: mailmap)
+    }
+
+    public mutating func push(remote: String, reference: ReferenceType) throws {
+        try push(remote: remote, options: PushOptions.cliOptions(repo: self), reference: reference)
+    }
+}
+
+/// Similar to a mailmap, except we hold onto the contents to take advantage of extra functionality for looking up
+/// things like slack and gitlab usernames.
+///
+/// Extra usernames appear in the mailmap as `<username@platform>`, for example, an entry for Jane Doe's Gitlab account
+/// might look something like:
+/// ```
+/// Jane Doe <jdoe@example.org> jdoe <jdoe@gitlab>
+/// ```
+public final class AliasMap: Mailmap {
+    let contents: String
+
+    public init(contents: String) throws {
+        self.contents = contents
+
+        try super.init(parsing: contents)
+    }
+
+    public func alias(username: String, platform: String) throws -> (name: String, email: String) {
+        try resolve(name: "", email: "\(username)@\(platform)")
+    }
+
+    public func alias(name: String, email: String, platform: String) throws -> String {
+        guard let line = contents.split(separator: "\n").first(where: {
+            $0.hasPrefix("\(name) <\(email)>") &&
+            $0.hasSuffix("@\(platform)>")
+        }) else {
+            throw POSIXError(.ENOENT)
+        }
+
+        // Our line looks like:
+        // Jane Doe <jdoe@example.org> <jdozer@slack>
+        // Split on the ">" in the middle of the string to get the second component, which just contains the alias.
+        let components = line.split(separator: "> ", maxSplits: 1)
+        guard components.count == 2 else {
+            throw POSIXError(.EINVAL)
+        }
+
+        // components[1] should look like:
+        // <jdozer@slack>
+        // Split the string on "@" and trim any characters to get the username.
+        var alias = components[1].trimmingCharacters(in: .whitespaces)
+        guard alias.hasPrefix("<") && alias.hasSuffix(">") else {
+            throw POSIXError(.EINVAL)
+        }
+
+        alias.removeFirst()
+        return String(alias.split(separator: "@").first!)
     }
 }
 
@@ -243,8 +402,6 @@ open class MapIterator<Input, Element, Iterator: IteratorProtocol<Input>>: Itera
     }
 }
 
-public typealias CommitishIterator = MapIterator<Result<Commit, NSError>, Result<Commitish, Error>, CommitIterator>
-public typealias LHCNoteIterator = MapIterator<Result<Note, NSError>, Result<Note, Error>, NoteIterator>
 
 enum RepositoryError: Error, CustomStringConvertible {
     case referenceNotFoundStartingFromLeaf(reference: ObjectID, leaf: ObjectID)
@@ -296,7 +453,7 @@ public protocol Commitish: ObjectType, CustomStringConvertible {
     var message: String { get }
     var date: Date { get }
 
-    var trailers: [Trailerish] { get throws }
+    var trailers: [Commit.Trailer] { get throws }
 }
 
 extension Commitish {
@@ -323,28 +480,29 @@ extension Tagish {
     }
 }
 
-public protocol Trailerish {
-    var key: String { get }
-    var value: String { get }
-}
-
 public protocol Configish {
-    func get(_ type: Bool.Type, _ name: String) -> Result<Bool, NSError>
-    func get(_ type: Int32.Type, _ name: String) -> Result<Int32, NSError>
-    func get(_ type: Int64.Type, _ name: String) -> Result<Int64, NSError>
-    func get(_ type: String.Type, _ name: String) -> Result<String, NSError>
-    func get(_ type: FilePath.Type, _ name: String) -> Result<FilePath, NSError>
+    func get(_ type: Bool.Type, _ name: String) throws -> Bool
+    func get(_ type: Int32.Type, _ name: String) throws -> Int32
+    func get(_ type: Int64.Type, _ name: String) throws -> Int64
+    func get(_ type: String.Type, _ name: String) throws -> String
+    func get(_ type: FilePath.Type, _ name: String) throws -> FilePath
 
-    mutating func set(_ name: String, value: Bool) -> Result<(), NSError>
-    mutating func set(_ name: String, value: Int32) -> Result<(), NSError>
-    mutating func set(_ name: String, value: Int64) -> Result<(), NSError>
-    mutating func set(_ name: String, value: String) -> Result<(), NSError>
+    mutating func set(_ name: String, value: Bool) throws
+    mutating func set(_ name: String, value: Int32) throws
+    mutating func set(_ name: String, value: Int64) throws
+    mutating func set(_ name: String, value: String) throws
 
     var global: Self { get throws }
-    static var defaultConfig: Self { get throws }
+    static func `default`() throws -> Self
 }
 
 public struct SigningOptions {
+    public static let statusDescriptor: Int32 = 3
+    public static let inputDescriptor: Int32 = 4
+    public static let outputDescriptor: Int32 = 5
+
+    internal static let ioDescription = "--status-fd=\(statusDescriptor) <&\(inputDescriptor) >&\(outputDescriptor)"
+
     public enum Format: String {
         case openpgp
         case x509
@@ -356,19 +514,19 @@ public struct SigningOptions {
     /// - Note: for SSH this can either be a key ID or a file. Extra work needs to be done to support SSH.
     public let keyArg: String
 
-    public var signingCommand: [String] {
+    public var signingCommand: String {
         switch format {
         case .openpgp, .x509:
-            return [program, "--status-fd=2", "-bsau", keyArg]
+            return "\(program) -bsau \(keyArg) \(Self.ioDescription)"
         case .ssh:
             fatalError("Signing with SSH keys is not yet supported.")
         }
     }
 
-    public func verifyCommand(fileName: String) -> [String] {
+    public func verifyCommand(fileName: String) -> String {
         switch format {
         case .openpgp, .x509:
-            return [program, "--status-fd=1", "--verify", fileName, "-"]
+            return "\(program) --verify \(fileName) \(Self.ioDescription)"
         case .ssh:
             fatalError("Verifying SSH signatures is not yet supported.")
         }
@@ -376,21 +534,32 @@ public struct SigningOptions {
 }
 
 extension Configish {
+    public subscript(_ key: String) -> String? {
+        try? get(String.self, key)
+    }
+
     public var signingKey: String? {
-        try? get(String.self, "user.signingkey").get()
+        self["user.signingkey"]
     }
 
     public var gpgProgram: String? {
-        (try? get(String.self, "gpg.program").get()) ??
-            (try? get(String.self, "gpg.openpgp.program").get())
+        self["gpg.program"] ?? self["gpg.openpgp.program"]
     }
 
     public var x509Program: String? {
-        try? get(String.self, "gpg.x509.program").get()
+        self["gpg.x509.program"]
     }
 
     public var sshSigningProgram: String? {
-        try? get(String.self, "gpg.ssh.program").get()
+        self["gpg.ssh.program"]
+    }
+
+    public var mailmapFile: String? {
+        self["mailmap.file"]
+    }
+
+    public var mailmapBlob: String? {
+        self["mailmap.blob"]
     }
 
     public var signingOptions: SigningOptions? {

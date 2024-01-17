@@ -7,7 +7,7 @@
 
 import Foundation
 
-public enum Either<Left: Hashable & Codable, Right: Hashable & Codable>: Hashable, Codable {
+public enum Either<Left, Right> {
     case left(Left)
     case right(Right)
 
@@ -34,6 +34,15 @@ public enum Either<Left: Hashable & Codable, Right: Hashable & Codable>: Hashabl
 
         return right
     }
+}
+
+extension Either: Codable where Left: Codable, Right: Codable {
+}
+
+extension Either: Equatable where Left: Equatable, Right: Equatable {
+}
+
+extension Either: Hashable where Left: Hashable, Right: Hashable {
 }
 
 /// Useful for printing/writing to a file either a string or encoded data.

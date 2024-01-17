@@ -161,6 +161,9 @@ struct Attr: ParsableCommand {
         @Option(name: [.customShort("m"), .customLong("message")])
         var attrLogMessage: String = "Attribute added by 'git-lhc attr add'"
 
+        @Option(help: "Push to a remote after adding the attribute.")
+        var push: String?
+
         @Argument()
         var attribute: ConventionalCommit.Trailer
 
@@ -194,22 +197,21 @@ struct Attr: ParsableCommand {
                         throw AttrError.userAborted
                     }
                 }
-                message = trailers.reduce(into: attributes.body + "\n\n", {
-                    guard $1.key != key else { return }
-                    $0 += "\($1.description)\n"
-                })
-            }
 
-            message += "\(attribute.description)\n"
-            Internal.print(message)
+                if !attributes.body.isEmpty && !attributes.body.isAll(inSet: .whitespacesAndNewlines) {
+                    message += attributes.body.trimmingCharacters(in: .newlines) + "\n\n"
+                }
 
-            var signingCallback: ((String) throws -> String)?
-            if let signingOptions = try parent.signingOptions() {
-                signingCallback = { contents in
-                    try LHC.sign(contents, options: signingOptions)
+                trailers.forEach {
+                    guard $0.key != key else { return }
+                    message += "\($0.description)\n"
                 }
             }
 
+            message += "\(attribute.description)\n"
+            Internal.print(message, terminator: "")
+
+            let signingOptions = try parent.signingOptions()
             _ = try repo.createNote(
                 for: target,
                 message: message,
@@ -217,9 +219,21 @@ struct Attr: ParsableCommand {
                 committer: repo.defaultSignature,
                 noteCommitMessage: attrLogMessage,
                 notesRefName: attrsRefString,
-                force: true,
-                signingCallback: signingCallback
-            )
+                force: true
+            ) {
+                guard let signingOptions else { return nil }
+                return try LHC.sign($0, options: signingOptions)
+            }
+
+            if let remote = push {
+                let refName = try attrsRefString ?? repo.defaultNotesRefName
+                let reference = try repo.reference(named: refName)
+
+                try repo.push(
+                    remote: remote,
+                    reference: reference
+                )
+            }
         }
     }
 
@@ -262,14 +276,9 @@ struct Attr: ParsableCommand {
                 throw AttrError.keyNotFound
             }
 
-            var signingCallback: ((String) throws -> String)?
-            if let signingOptions = try parent.signingOptions() {
-                signingCallback = { contents in
-                    try LHC.sign(contents, options: signingOptions)
-                }
-            }
-
             let defaultSignature = try repo.defaultSignature
+            let signingOptions = try parent.signingOptions()
+
             guard trailers.count > 1 || !attributes.body.isEmpty else {
                 // If the attrs don't have a body and this is the only attribute for the object, remove the git note.
                 try repo.removeNote(
@@ -277,9 +286,11 @@ struct Attr: ParsableCommand {
                     author: defaultSignature,
                     committer: defaultSignature,
                     noteCommitMessage: attrLogMessage,
-                    notesRefName: attrsRefString,
-                    signingCallback: signingCallback
-                )
+                    notesRefName: attrsRefString
+                ) {
+                    guard let signingOptions else { return nil }
+                    return try LHC.sign($0, options: signingOptions)
+                }
                 return
             }
 
@@ -296,9 +307,11 @@ struct Attr: ParsableCommand {
                 committer: defaultSignature,
                 noteCommitMessage: attrLogMessage,
                 notesRefName: attrsRefString,
-                force: true,
-                signingCallback: signingCallback
-            )
+                force: true
+            ) {
+                guard let signingOptions else { return nil }
+                return try LHC.sign($0, options: signingOptions)
+            }
         }
     }
 

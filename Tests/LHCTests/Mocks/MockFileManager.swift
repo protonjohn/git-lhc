@@ -121,23 +121,10 @@ struct MockFileManager: FileManagerish {
         try setNode(nil, atPath: path)
     }
 
-    mutating func url(
-        for directory: FileManager.SearchPathDirectory,
-        in domain: FileManager.SearchPathDomainMask,
-        appropriateFor url: URL?,
-        create shouldCreate: Bool
-    ) throws -> URL {
-        guard directory == .itemReplacementDirectory,
-              domain == .userDomainMask else {
-            throw "Not yet implemented"
-        }
-
+    mutating func tempDir(appropriateFor: URL?) throws -> URL {
         let name = "\(UUID())"
         let url = URL(filePath: "/tmp/\(name)")
-        if shouldCreate {
-            try setNode(.directory(name: name, contents: []), atPath: "/tmp")
-        }
-
+        try setNode(.directory(name: name, contents: []), atPath: "/tmp")
         return url
     }
 
@@ -148,6 +135,14 @@ struct MockFileManager: FileManagerish {
         default:
             return nil
         }
+    }
+
+    func contentsOfDirectory(
+        at url: URL,
+        includingPropertiesForKeys: [URLResourceKey]?,
+        options: FileManager.DirectoryEnumerationOptions
+    ) throws -> [URL] {
+        fatalError("Not yet implemented")
     }
 
     indirect enum MockFile {

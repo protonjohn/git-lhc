@@ -11,6 +11,7 @@ import SwiftGit2
 public enum Internal {
     public static func initialize() {
         SwiftGit2.initialize()
+        try! Internal.registerTransports()
     }
 
     public static var isCI: Bool {

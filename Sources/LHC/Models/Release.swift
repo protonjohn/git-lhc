@@ -7,7 +7,7 @@
 import Foundation
 import Version
 import SwiftGit2
-import Yams
+import Stencil
 import LHCInternal
 
 /// A software release.
@@ -17,12 +17,18 @@ public struct Release {
     /// The category for a given change, denoted by its conventional commit type.
     public typealias Category = String
 
-    /// The string for this release's version. May or may not parse into a semantic version.
+    /// The name of the tag designating this release, if any.
+    public let tagName: String?
+
+    /// The hash of the object designating this release, if any.
+    public let objectHash: String?
+
+    /// The string for this release's version, often the same as the tag name. Not necessarily a semantic version.
     public let versionString: String
+
     /// The train name associated with this release.
     public let train: String?
-    /// Whether or not this release has been tagged in the repository history yet.
-    public let tagged: Bool
+
     /// The changes associated with this release, grouped by category.
     public let changes: [Category: [Change]]
 
@@ -32,8 +38,11 @@ public struct Release {
     /// Trailers added to the release's tag body.
     public let trailers: [Trailer]?
 
-    /// Attributes attached to the release tag through git notes.
+    /// Attributes attached to the release tag through `git-lhc attr`.
     public let attributes: [Trailer]?
+
+    /// A list of checklist names which have been evaluated for this release since its creation, if any.
+    public let checklists: [String]?
 
     /// The parsed version of this release.
     public var version: Version? {
@@ -67,6 +76,8 @@ public struct Release {
         public let commitHash: String
         /// The project IDs associated with this change, if the project ID prefix has been set in the configuration.
         public let projectIds: [String]
+        /// A list of checklist names which have been evaluated for this change since it was merged, if any.
+        public let checklists: [String]?
     }
 }
 
@@ -128,34 +139,39 @@ extension Release: Codable {
         case versionString = "version"
         case shortVersion
         case train
-        case tagged
+        case tagName = "tag_name"
+        case objectHash = "object_hash"
         case changes
         case body = "changelog"
         case channel
         case trailers = "tag_trailers"
         case attributes = "attributes"
+        case checklists = "checklists"
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(self.versionString, forKey: .versionString)
+        try container.encodeIfPresent(self.objectHash, forKey: .objectHash)
         try container.encodeIfPresent(self.shortVersion?.description, forKey: .shortVersion)
         try container.encodeIfPresent(self.train, forKey: .train)
-        try container.encode(self.tagged, forKey: .tagged)
+        try container.encodeIfPresent(self.tagName, forKey: .tagName)
         try container.encode(self.changes, forKey: .changes)
         try container.encodeIfPresent(self.body, forKey: .body)
         try container.encode(self.channel, forKey: .channel)
-        try container.encode(self.attributes, forKey: .attributes)
+        try container.encodeIfPresent(self.attributes, forKey: .attributes)
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         let versionString = try container.decode(String.self, forKey: .versionString)
+        let objectHash = try container.decodeIfPresent(String.self, forKey: .objectHash)
         let train = try container.decodeIfPresent(String.self, forKey: .train)
-        let tagged = try container.decodeIfPresent(Bool.self, forKey: .tagged) ?? false
+        let tagName = try container.decodeIfPresent(String.self, forKey: .tagName)
         let changes = try container.decodeIfPresent([Category: [Change]].self, forKey: .changes) ?? [:]
         let body = try container.decodeIfPresent(String.self, forKey: .body)
+        let checklists = try container.decodeIfPresent([String].self, forKey: .checklists)
 
         let trailers: [Trailer]? = try container.decodeIfPresent([String: String].self, forKey: .trailers)?
             .reduce(into: []) {
@@ -168,13 +184,15 @@ extension Release: Codable {
             }
 
         self.init(
+            tagName: tagName,
+            objectHash: objectHash,
             versionString: versionString,
             train: train,
-            tagged: tagged,
             changes: changes,
             body: body,
             trailers: trailers,
-            attributes: attributes
+            attributes: attributes,
+            checklists: checklists
         )
     }
 }
@@ -182,23 +200,32 @@ extension Release: Codable {
 extension Release {
     public init(
         version: Version,
-        tagged: Bool,
+        tagName: String?,
+        objectID: ObjectID?,
         train: String?,
         body: String?,
         trailers: [Trailer]?,
         attributes: [Trailer]?,
         conventionalCommits: [ConventionalCommit],
         correspondingHashes: [ObjectID],
+        checklistNames: [ObjectID: [String]]?,
         projectIdTrailerName trailerName: String? = nil
     ) {
         assert(conventionalCommits.count == correspondingHashes.count, "Array lengths do not match")
 
         self.versionString = version.description
-        self.tagged = tagged
+        self.tagName = tagName
+        self.objectHash = objectID?.description
         self.train = train
         self.trailers = trailers
         self.attributes = attributes
         self.body = body
+
+        if let objectID {
+            self.checklists = checklistNames?[objectID]
+        } else {
+            self.checklists = nil
+        }
 
         self.changes = conventionalCommits.enumerated().reduce(into: [:], { result, element in
             let (index, cc) = element
@@ -208,12 +235,14 @@ extension Release {
                 result[header.type] = []
             }
 
+            let oid = correspondingHashes[index]
             result[header.type]?.append(Change(
                 summary: header.summary,
                 body: cc.body,
-                commitHash: correspondingHashes[index].description,
+                commitHash: oid.description,
                 projectIds: trailerName == nil ? [] :
-                    cc.trailers(named: trailerName!).map(\.value)
+                    cc.trailers(named: trailerName!).map(\.value),
+                checklists: checklistNames?[oid]
             ))
         })
     }
@@ -232,46 +261,52 @@ extension Release {
         )
 
         return Self(
+            tagName: tagName,
+            objectHash: objectHash,
             versionString: newVersion.description,
             train: train,
-            tagged: tagged,
             changes: changes,
             body: body,
             trailers: trailers,
-            attributes: attributes
+            attributes: attributes,
+            checklists: checklists
         )
     }
 
     public func adding(notes: String) -> Self {
         Self(
+            tagName: tagName,
+            objectHash: objectHash,
             versionString: versionString,
             train: train,
-            tagged: tagged,
             changes: changes,
             body: notes,
             trailers: trailers,
-            attributes: attributes
+            attributes: attributes,
+            checklists: checklists
         )
     }
 
-    public func redacting(commitHashes: Bool, projectIds: Bool) -> Self {
+    public func redacting(commitHashes: Bool, projectIds: Bool, checklists: Bool) -> Self {
         Self(
+            tagName: tagName,
+            objectHash: objectHash,
             versionString: versionString,
             train: train,
-            tagged: tagged,
             changes: changes.reduce(into: [:], { partialResult, keypair in
                 partialResult[keypair.key] = keypair.value.map {
-                    $0.redacting(commitHash: commitHashes, projectIds: projectIds)
+                    $0.redacting(commitHash: commitHashes, projectIds: projectIds, checklists: checklists)
                 }
             }),
             body: body,
             trailers: trailers,
-            attributes: attributes
+            attributes: attributes,
+            checklists: self.checklists
         )
     }
 
     public func describe(options: Configuration.Options? = nil) -> String? {
-        var result = "# \(train ?? "Version") \(versionString)\(tagged ? "" : " (Not Tagged)"):\n\n"
+        var result = "# \(train ?? "Version") \(versionString)\(tagName != nil ? "" : " (Not Tagged)"):\n\n"
 
         if let body {
             result.append("\(body)\n\n")
@@ -330,14 +365,19 @@ extension Release.Change: CustomStringConvertible {
 }
 
 extension Release.Change {
-    public func redacting(commitHash: Bool, projectIds: Bool) -> Self {
+    public func redacting(commitHash: Bool, projectIds: Bool, checklists: Bool) -> Self {
         Self(
             summary: summary,
             body: body,
             commitHash: commitHash ? "" : self.commitHash,
-            projectIds: projectIds ? [] : self.projectIds
+            projectIds: projectIds ? [] : self.projectIds,
+            checklists: checklists ? [] : self.checklists
         )
     }
+}
+
+public enum ReleaseError: Error {
+    case invalidVersion(String)
 }
 
 /// Convenience functions for creating one or more releases from an arbitrary range of commits. The public functions
@@ -345,38 +385,60 @@ extension Release.Change {
 /// ranges onto the private `releases()` function which is responsible for creating the actual Release objects.
 extension Repositoryish {
     private typealias Trailer = ConventionalCommit.Trailer
-    private typealias TaggedRelease = (tag: TagReferenceish, version: Version)
-    private typealias ReleaseRange = (last: TaggedRelease?, release: ReferenceType)
+    private typealias TaggedRelease = (object: ObjectType, version: Version)
+    private typealias ReleaseRange = (last: TaggedRelease?, release: ObjectType)
 
     private func tagsAndVersions(options: Configuration.Options?) throws -> [TaggedRelease] {
-        try allTags().compactMap { (tag: TagReferenceish) -> TaggedRelease? in
+        let result = try allTags().compactMap { (tag: TagReferenceish) -> TaggedRelease? in
             guard let version = Version(
                 prefix: options?.tagPrefix,
                 versionString: tag.name
             ) else { return nil }
 
-            return (tag: tag, version: version)
+            guard let object = try? object(tag.tagOid ?? tag.oid) else { return nil }
+
+            return (object: object, version: version)
         }.sorted { $0.version < $1.version }
+        for item in result {
+            print(item)
+        }
+        return result
     }
 
     private func lastReachableRelease(
-        among references: ArraySlice<TaggedRelease>,
+        among objects: ArraySlice<TaggedRelease>,
         from: ObjectID,
         inclusive: Bool = false
     ) throws -> TaggedRelease? {
-        try references.last {
-            try (inclusive || $0.tag.oid != from) &&
+        try objects.last {
+            guard let target = $0.object.commitOid else {
+                throw GitError(
+                    code: .invalid,
+                    detail: .object,
+                    description: "\($0.object) should be either a tag or a commit"
+                )
+            }
+            return try (inclusive || target != from) &&
                 $0.version.releaseChannel == .production &&
-                isReachable($0.tag.oid, from: from)
+                isReachable(target, from: from)
         }
     }
 
     private func taggedReleaseRanges(_ taggedReleases: [TaggedRelease]) throws -> [ReleaseRange] {
         return try taggedReleases.enumerated().reduce(into: []) { result, element in
             let (i, (tag, _)) = element
+
+            guard let target = tag.commitOid else {
+                throw GitError(
+                    code: .invalid,
+                    detail: .object,
+                    description: "\(tag.oid) should be either a tag or a commit"
+                )
+            }
+
             let lastVersion = try lastReachableRelease(
                 among: taggedReleases[0..<i],
-                from: tag.oid
+                from: target
             )
             result.append((lastVersion, tag))
         }
@@ -392,30 +454,47 @@ extension Repositoryish {
         var result: [Release] = []
         var badCommits: [Commitish] = []
 
+        let checklistRefNames = try? checklistRefs(options: options)
+        var objectChecklistNames: [ObjectID: [String]] = [:]
+
         for (last, release) in ranges {
-            let repoCommits = try commits(from: release.oid, since: last?.tag.oid)
-            let commits: [(oid: OID, cc: ConventionalCommit)] = repoCommits.compactMap {
+            let lastTarget = last?.object.commitOid
+            guard let releaseTarget = release.commitOid else {
+                throw GitError(
+                    code: .invalid,
+                    detail: .object,
+                    description: "\(release.oid) should be either a tag or a commit"
+                )
+            }
+            let repoCommits = try commits(from: releaseTarget, since: lastTarget)
+            let commits: [(oid: OID, cc: ConventionalCommit)] = repoCommits.compactMap { commit in
                 do {
                     var attributes: [Trailer]?
                     if let attrsRef = options?.attrsRef,
-                       let note = try? note(for: $0.oid, notesRef: attrsRef) {
+                       let note = try? note(for: commit.oid, notesRef: attrsRef) {
                         attributes = note.attributes.trailers
                     }
-                    // Attempt to properly parse a conventional commit. If we can't, then fake one using the
-                    // commit subject and body.
-                    let commit = try ConventionalCommit(message: $0.message, attributes: attributes)
-                    guard let categories = options?.commitCategories else {
-                        return ($0.oid, commit)
+
+                    if let checklistRefNames {
+                        let checklists = checklistNames(fromRefNames: checklistRefNames, withNotesFor: commit.oid)
+                        objectChecklistNames[commit.oid] = (checklists.isEmpty ? nil : checklists)
                     }
 
-                    guard categories.contains(commit.header.type) == true else {
-                        badCommits.append($0)
+                    // Attempt to properly parse a conventional commit. If we can't, then fake one using the
+                    // commit subject and body.
+                    let cc = try ConventionalCommit(message: commit.message, attributes: attributes)
+                    guard let categories = options?.commitCategories else {
+                        return (commit.oid, cc)
+                    }
+
+                    guard categories.contains(cc.header.type) == true else {
+                        badCommits.append(commit)
                         return nil
                     }
 
-                    return ($0.oid, commit)
+                    return (commit.oid, cc)
                 } catch {
-                    badCommits.append($0)
+                    badCommits.append(commit)
                     return nil
                 }
             }
@@ -435,41 +514,50 @@ extension Repositoryish {
             var body: String?
             var trailers: [Trailer]?
             var attributes: [Trailer]?
-            if let tagReference = release as? TagReferenceish {
-                if let message = tagReference.message {
-                    if let conventionalTag = try? ConventionalCommit(message: message) {
-                        // Annotated tags formatted like conventional commits look like:
-                        // release(<train name>): Version 3.0.1
-                        //
-                        // <body follows>
-                        //
-                        // <trailers follow optionally>
-                        //
-                        // To avoid duplicating information, we'll only put the body here if the commit parses correctly.
-                        body = conventionalTag.body
-                        trailers = conventionalTag.trailers
-                    } else {
-                        body = message
-                    }
+
+            if let tag = release as? Tagish {
+                if let conventionalTag = try? ConventionalCommit(message: tag.message) {
+                    // Annotated tags formatted like conventional commits look like:
+                    // release(<train name>): Version 3.0.1
+                    //
+                    // <body follows>
+                    //
+                    // <trailers follow optionally>
+                    //
+                    // To avoid duplicating information, we'll only put the body here if the commit parses correctly.
+                    body = conventionalTag.body
+                    trailers = conventionalTag.trailers
+                } else {
+                    body = tag.message
                 }
+
                 if let attrsRef = options?.attrsRef,
-                   let note = try? note(for: tagReference.oid, notesRef: attrsRef) {
+                   let note = try? note(for: tag.oid, notesRef: attrsRef) {
                     attributes = note.attributes.trailers
+                }
+
+                // Note: we don't have to worry if this is a lightweight tag, since the checklists would have been
+                // captured by the loop above.
+                if let checklistRefNames {
+                    let checklists = checklistNames(fromRefNames: checklistRefNames, withNotesFor: tag.oid)
+                    objectChecklistNames[tag.oid] = (checklists.isEmpty ? nil : checklists)
                 }
             }
 
             let conventionalCommits = commits.map(\.cc)
 
-            var tagged = false
+            var tagName: String?
+            var tagOid: ObjectID?
             let version: Version
-            if let releaseTag = release as? TagReferenceish,
+            if let releaseTag = release as? Tagish,
                let taggedVersion = Version(
                    prefix: options?.tagPrefix,
                    versionString: releaseTag.name
                )
             {
                 version = taggedVersion
-                tagged = true
+                tagName = releaseTag.name
+                tagOid = releaseTag.oid
             } else if let forcedVersion {
                 version = forcedVersion
             } else if let last {
@@ -482,15 +570,17 @@ extension Repositoryish {
             }
 
             versionsSoFar.append(version)
-            result.append(.init(
+            result.append(Release(
                 version: version,
-                tagged: tagged,
+                tagName: tagName,
+                objectID: tagOid ?? commits.first?.oid,
                 train: options?.trainDisplayName ?? options?.train,
                 body: body,
                 trailers: trailers,
                 attributes: attributes,
                 conventionalCommits: conventionalCommits,
                 correspondingHashes: commits.map(\.oid),
+                checklistNames: objectChecklistNames,
                 projectIdTrailerName: options?.projectIdTrailerName
             ))
         }
@@ -510,18 +600,27 @@ extension Repositoryish {
             return nil
         }
 
+        guard let releaseTarget = releaseTag.object.commitOid else {
+            throw GitError(
+                code: .invalid,
+                detail: .object,
+                description: "\(releaseTag.object.oid) should be either a tag or a commit"
+            )
+        }
+
         let lastVersion = try lastReachableRelease(
             among: taggedReleases[0..<index],
-            from: releaseTag.tag.oid
+            from: releaseTarget
         )
 
-        return try releases(fromRanges: [(lastVersion, releaseTag.tag)], options: options).0.first
+        return try releases(fromRanges: [(lastVersion, releaseTag.object)], options: options).0.first
     }
 
     public func latestRelease(
         allowDirty: Bool,
         untaggedReleaseChannel: ReleaseChannel = .production,
         forceLatestVersionTo forcedVersion: Version?,
+        target: ObjectID? = nil,
         options: Configuration.Options? = nil
     ) throws -> Release? {
         let head: ReferenceType = try currentBranch() ?? HEAD()
@@ -533,24 +632,31 @@ extension Repositoryish {
         )
 
         if let thisTag = head as? TagReferenceish {
+            let oid = thisTag.tagOid ?? thisTag.oid
+            let object = try object(oid)
             return try releases(
-                fromRanges: [(lastVersion, thisTag)],
+                fromRanges: [(lastVersion, object)],
                 options: options
             ).0.first
-        } else if let thisVersion = try lastReachableRelease(among: taggedReleases[...], from: head.oid, inclusive: true),
-            thisVersion.tag.oid == head.oid {
+        } else if let thisVersion = try lastReachableRelease(
+                among: taggedReleases[...],
+                from: head.oid,
+                inclusive: true
+            ),
+            thisVersion.object.commitOid == head.oid {
             // We could have been passed a ReferenceType for HEAD that wasn't a tag, even if HEAD is in fact tagged.
             // If we do a reverse lookup for the latest tag and it happens to be the same OID as HEAD, use that tag
             // as the reference type instead. This lets us make sure we set the "tagged" property correctly.
             return try releases(
-                fromRanges: [(lastVersion, thisVersion.tag)],
+                fromRanges: [(lastVersion, thisVersion.object)],
                 options: options
             ).0.first
         } else if allowDirty {
             // The tag hasn't been computed yet, so we'll need to create one.
             // For this, we need to make sure that `releases' has seen all of the possible release tags for the given
             // release channel, if that release channel isn't production, in order to calculate the version correctly.
-            var ranges = [(lastVersion, head)]
+            let object = try commit(head.oid) as ObjectType
+            var ranges = [(lastVersion, object)]
             if untaggedReleaseChannel.isPrerelease {
                 let otherVersions = try taggedReleaseRanges(
                     taggedReleases.filter {
@@ -581,89 +687,87 @@ extension Repositoryish {
     }
 
     public func allReleases(
-        allowDirty: Bool,
-        untaggedReleaseChannel: ReleaseChannel = .production,
-        forceLatestVersionTo forcedVersion: Version?,
+        allowDirty: Bool = false,
+        forceLatestVersionTo forcedVersion: Version? = nil,
+        channel: ReleaseChannel? = .production,
+        target: ObjectID? = nil,
         options: Configuration.Options? = nil
     ) throws -> [Release] {
-        let head: ReferenceType = try currentBranch() ?? HEAD()
-        let taggedReleases = try tagsAndVersions(options: options)
+        let target = try target ?? (currentBranch() ?? HEAD()).oid
+        var taggedReleases = try tagsAndVersions(options: options)
 
-        var ranges: [ReleaseRange] = try taggedReleaseRanges(
-            taggedReleases.filter { $0.version.releaseChannel == .production }
-        )
+        if let channel {
+            taggedReleases = taggedReleases.filter {
+                $0.version.releaseChannel == channel
+            }
+        }
 
-        if allowDirty, let last = ranges.last, last.release.oid != head.oid {
+        var ranges: [ReleaseRange] = try taggedReleaseRanges(taggedReleases)
+
+        let object = try object(target)
+        if allowDirty, let last = ranges.last, last.release.oid != target {
             let lastUntaggedVersion = try lastReachableRelease(
                 among: taggedReleases[...],
-                from: head.oid
+                from: target
             )
-            ranges.append((lastUntaggedVersion, head))
+            ranges.append((lastUntaggedVersion, object))
         }
 
         // We want the most recent versions first.
         return try releases(
             fromRanges: ranges.reversed(),
-            untaggedRangeReleaseChannel: untaggedReleaseChannel,
+            untaggedRangeReleaseChannel: channel ?? .production,
             forceLatestVersionTo: forcedVersion,
             options: options
         ).0
     }
+}
 
-    /// Get the list of commits that added or removed a given attribute key for a given object.
-    public func attributeLog(key: String, target: ObjectID, refName: String) throws -> [AttributeLogEntry] {
-        // Get all of the note commits for a given object that have defined a given attribute.
-        return try noteCommits(on: try reference(named: refName), for: target)
-            .compactMap {
-                guard let parent = $0.parentOIDs.first,
-                      let parentCommit = try? commit(parent),
-                      let parentNote = try? readNoteCommit(for: target, commit: parentCommit) else {
-                    // The common case: this is the first attribute added for a given object
-                    guard let attributes = $1.attributes.trailers,
-                          let first = attributes.first else { return nil }
+extension Stencil.Environment {
+    func renderRelease(
+        templateName: String,
+        release: Release,
+        includeChecklists: Bool,
+        repo: Repositoryish,
+        options: Configuration.Options?
+    ) throws -> [String: String?] {
+        var context: [String: Any] = [:]
 
-                    return .init(
-                        action: .add,
-                        key: first.key,
-                        value: first.value,
-                        commit: $0
-                    )
-                }
+        context["release"] = release
 
-                if let value = $1.attributes.trailers?[key] {
-                    if parentNote.attributes.trailers?[key] == nil {
-                        return .init(action: .add, key: key, value: value, commit: $0)
-                    }
-                } else if let parentValue = parentNote.attributes.trailers?[key] {
-                    return .init(action: .remove, key: key, value: parentValue, commit: $0)
-                }
+        let subpath = options?.checklistOutputDir ?? "checklists/"
+        let refroot = options?.checklistRefRootWithTrailingSlash ?? "refs/notes/checklists/"
 
-                return nil
+        var checklistContents: [String: String] = [:]
+        if includeChecklists {
+            var oids: [ObjectID: [String]] = [:]
+            if let hash = release.objectHash,
+               let oid = ObjectID(string: hash),
+               let checklists = release.checklists {
+                oids[oid] = checklists
             }
+
+            for (_, changes) in release.changes {
+                for change in changes {
+                    guard let checklists = change.checklists,
+                          let oid = ObjectID(string: change.commitHash) else { continue }
+                    oids[oid] = checklists
+                }
+            }
+
+            checklistContents = oids.reduce(into: [:], {
+                for name in $1.value {
+                    guard let note = try? repo.note(for: $1.key, notesRef: refroot + name) else { continue }
+                    $0[subpath + $0.description + "/\(name)"] = note.message
+                }
+            })
+        }
+
+        let templateContents = try renderTemplates(
+            nameOrRoot: templateName,
+            additionalContext: context
+        )
+
+        return templateContents.merging(checklistContents, uniquingKeysWith: { lhs, rhs in lhs })
     }
-}
-
-public struct AttributeLogEntry: CustomStringConvertible {
-    public enum Action: String {
-        case add
-        case remove
-    }
-
-    public let action: Action
-    public let key: String
-    public let value: String
-    public let commit: Commitish
-
-    public var description: String {
-        let subject = commit.message.split(separator: "\n", maxSplits: 1).first!
-        let longHash = commit.oid.description
-        let shortHash = longHash.prefix(upTo: longHash.index(longHash.startIndex, offsetBy: 8))
-
-        let set = action == .add ? "+" : "-"
-        return "\(set)\(key): \(value)\n\(shortHash) \(subject)"
-    }
-}
-
-public enum ReleaseError: Error {
-    case invalidVersion(String)
 }

@@ -81,6 +81,7 @@ struct ConfigEval: ParsableCommand {
             throw ValidationError("Invalid path \(outputFile!).")
         }
 
+        let decoder = JSONDecoder()
         let jsonDict = values.reduce(into: [String: Any]()) {
             let (key, value) = $1
 
@@ -103,8 +104,8 @@ struct ConfigEval: ParsableCommand {
                     result = double
                 } else if value.couldBeJSON,
                     let data = value.data(using: .utf8),
-                    let object = try? JSONSerialization.jsonObject(with: data) {
-                    result = object
+                    let object = try? decoder.decode(CodingDictionary.self, from: data) {
+                    result = object.rawValue
                 } else {
                     result = value
                 }
@@ -114,7 +115,7 @@ struct ConfigEval: ParsableCommand {
         }
 
         let handle = try FileHandle(forWritingTo: outputFile)
-        let data = try JSONSerialization.data(withJSONObject: jsonDict)
+        let data = try JSONEncoder().encode(CodingDictionary(rawValue: jsonDict))
         try handle.write(contentsOf: data)
     }
 }

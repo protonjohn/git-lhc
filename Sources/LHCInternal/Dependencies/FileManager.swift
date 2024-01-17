@@ -17,13 +17,19 @@ public protocol FileManagerish {
 
     func contents(atPath path: String) -> Data?
 
-    mutating func url(for directory: FileManager.SearchPathDirectory, in domain: FileManager.SearchPathDomainMask, appropriateFor url: URL?, create shouldCreate: Bool) throws -> URL
-
     mutating func createFile(
         atPath path: String,
         contents data: Data?,
         attributes attr: [FileAttributeKey : Any]?
     ) -> Bool
+
+    mutating func tempDir(appropriateFor: URL?) throws -> URL
+
+    func contentsOfDirectory(
+        at url: URL,
+        includingPropertiesForKeys: [URLResourceKey]?,
+        options: FileManager.DirectoryEnumerationOptions
+    ) throws -> [URL]
 }
 
 extension FileManagerish {
@@ -35,32 +41,74 @@ extension FileManagerish {
     }
 
     /// editFile: Spawn an editor session if detected to be running in a terminal.
-    public mutating func editFile(_ editableString: String, temporaryFileName: String?) throws -> String? {
-        let fileName = temporaryFileName ?? "tmp.txt"
-        let fileNameURL = URL(filePath: fileName, relativeTo: nil)
+    @available(*, noasync, message: "This function is not available from an async context.")
+    public mutating func editFile(_ editableString: String, temporaryFileName: String? = nil) throws -> String? {
+        let tempFilePath = try tempFile(contents: editableString.data(using: .utf8), fileName: temporaryFileName).path()
 
-        let tempDir = try url(
-            for: .itemReplacementDirectory,
-            in: .userDomainMask,
-            appropriateFor: fileNameURL,
-            create: true
-        )
+        let pointer: UnsafeMutablePointer<Result<Int32, Error>?> = .allocate(capacity: 1)
+        pointer.initialize(to: nil)
+        defer { pointer.deallocate() }
 
-        let tempFile = URL(filePath: fileNameURL.path(), relativeTo: tempDir)
-        let tempFilePath = tempFile.absoluteURL.path()
+        let group = DispatchGroup()
+        group.enter()
+        Task.detached {
+            do {
+                for await event in try Internal.shell.run(
+                    command: "\(Internal.editor) \(tempFilePath)"
+                ) {
+                    guard case .success(.exit(let code)) = event else { continue }
 
-        let editableStringData = editableString.data(using: .utf8)
-        _ = createFile(atPath: tempFilePath, contents: editableStringData)
+                    pointer.pointee = .success(code)
+                    break
+                }
+            } catch {
+                pointer.pointee = .failure(error)
+            }
+            group.leave()
+        }
 
-        try Internal.spawnAndWait(
-            executableURL: URL(filePath: Internal.editor, directoryHint: .notDirectory),
-            arguments: [tempFilePath]
-        )
+        group.wait()
+        defer {
+            try? removeItem(atPath: tempFilePath)
+        }
 
-        guard let contents = contents(atPath: tempFilePath),
-              let string = String(data: contents, encoding: .utf8) else { return nil }
+        guard let result = pointer.pointee else {
+            return nil
+        }
 
-        return string
+        switch result {
+        case .success(let exitCode):
+            guard exitCode == 0,
+                  let contents = contents(atPath: tempFilePath),
+                  let string = String(data: contents, encoding: .utf8) else { return nil }
+            return string
+        case .failure(let error):
+            throw error
+        }
+    }
+
+    public mutating func tempFile(contents: Data?, fileName: String? = nil) throws -> URL {
+        let tempDir = try tempDir(appropriateFor: nil)
+        let fileName = URL(
+            filePath: fileName ?? Internal.processInfo.globallyUniqueString,
+            relativeTo: tempDir
+        ).absoluteURL
+        guard createFile(atPath: fileName.path(), contents: contents) else {
+            throw FileError.couldntCreateFile(at: fileName.path())
+        }
+
+        return fileName
+    }
+}
+
+public enum FileError: Error, CustomStringConvertible {
+    case couldntCreateFile(at: String)
+
+    public var description: String {
+        switch self {
+        case .couldntCreateFile(let path):
+            return "Couldn't create file at \(path)."
+        }
     }
 }
 
@@ -109,6 +157,15 @@ extension FileManager: FileManagerish {
         isDirectory = isDir.boolValue
 
         return result
+    }
+
+    public func tempDir(appropriateFor originalFile: URL?) throws -> URL {
+        try url(
+            for: .itemReplacementDirectory,
+            in: .userDomainMask,
+            appropriateFor: originalFile ?? self.temporaryDirectory,
+            create: true
+        )
     }
 }
 

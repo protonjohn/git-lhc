@@ -33,7 +33,6 @@ class DescribeReleaseTests: LHCTestCase {
         let releases = try decoder.decode([Release].self, from: data)
         XCTAssertEqual(releases.count, 1)
         XCTAssertEqual(releases.first?.version, Version(0, 0, 1))
-        XCTAssertNil(releases.first?.body)
 
         let fixes = releases.first?.changes["fix"]
         let features = releases.first?.changes["feat"]
@@ -56,8 +55,7 @@ class DescribeReleaseTests: LHCTestCase {
         let releases = try decoder.decode([Release].self, from: data)
         XCTAssertEqual(releases.count, 1)
         XCTAssertEqual(releases.first?.version, Version(0, 0, 1))
-        XCTAssertEqual(releases.first?.tagged, true)
-        XCTAssertNil(releases.first?.body)
+        XCTAssertEqual(releases.first?.tagName, "0.0.1")
 
         XCTAssertEqual(releases.first?.changes.count, 2)
         let fixes = releases.first?.changes["fix"]
@@ -82,7 +80,7 @@ class DescribeReleaseTests: LHCTestCase {
         XCTAssertEqual(releases.count, 1)
 
         XCTAssertEqual(releases.first?.version, Version(1, 0, 0))
-        XCTAssertEqual(releases.first?.tagged, false)
+        XCTAssertEqual(releases.first?.tagName, nil)
 
         XCTAssertEqual(releases.first?.changes.count, 1)
         let build = releases.first?.changes["build"]
@@ -103,7 +101,7 @@ class DescribeReleaseTests: LHCTestCase {
         let releases = try decoder.decode([Release].self, from: data)
         XCTAssertEqual(releases.count, 1)
         XCTAssertEqual(releases.first?.version, Version(tag.name))
-        XCTAssertEqual(releases.first?.tagged, true)
+        XCTAssertEqual(releases.first?.tagName, tag.name)
 
         XCTAssertEqual(releases.first?.changes.count, 1)
         let fix = releases.first?.changes["fix"]
@@ -126,13 +124,13 @@ class DescribeReleaseTests: LHCTestCase {
         do {
             let release = releases.first
             XCTAssertEqual(release?.version, Version(1, 0, 0))
-            XCTAssertEqual(release?.tagged, false)
+            XCTAssertEqual(release?.tagName, nil)
         }
 
         do {
             let release = releases.second
             XCTAssertEqual(release?.version, Version(0, 1, 0))
-            XCTAssertEqual(release?.tagged, true)
+            XCTAssertEqual(release?.tagName, "0.1.0")
         }
 
         do {
@@ -142,7 +140,7 @@ class DescribeReleaseTests: LHCTestCase {
             }
             let release = releases[2]
             XCTAssertEqual(release.version, Version(0, 0, 2))
-            XCTAssertEqual(release.tagged, true)
+            XCTAssertEqual(release.tagName, "0.0.2")
         }
 
         do {
@@ -152,7 +150,7 @@ class DescribeReleaseTests: LHCTestCase {
             }
             let release = releases[3]
             XCTAssertEqual(release.version, Version(0, 0, 1))
-            XCTAssertEqual(release.tagged, true)
+            XCTAssertEqual(release.tagName, "0.0.1")
         }
     }
 
@@ -168,7 +166,7 @@ class DescribeReleaseTests: LHCTestCase {
         XCTAssertEqual(releases.count, 1)
 
         XCTAssertEqual(releases.first?.version, Version(0, 0, 2))
-        XCTAssertEqual(releases.first?.tagged, true)
+        XCTAssertEqual(releases.first?.tagName, "0.0.2")
         XCTAssertEqual(releases.first?.changes.count, 1)
 
         let fixes = releases.first?.changes["fix"]
@@ -192,7 +190,7 @@ class DescribeReleaseTests: LHCTestCase {
 
         for subtest in subtests {
             try subtest()
-            Internal.printer = MockPrinter(printedItems: [])
+            Internal.shell = MockShell.mock
         }
     }
 
@@ -205,8 +203,7 @@ class DescribeReleaseTests: LHCTestCase {
         let releases = try decoder.decode([Release].self, from: data)
         XCTAssertEqual(releases.count, 1)
         XCTAssertEqual(releases.first?.version, Version(0, 1, 0))
-        XCTAssertEqual(releases.first?.tagged, true)
-        XCTAssertNil(releases.first?.body)
+        XCTAssertEqual(releases.first?.tagName, "train/0.1.0")
 
         let fixes = releases.first?.changes["fix"]
         let features = releases.first?.changes["feat"]

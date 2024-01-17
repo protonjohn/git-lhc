@@ -106,6 +106,28 @@ extension Configuration {
         /// The (optional) reference name to use for storing/retrieving tag and commit attributes.
         public let attrsRef: String?
 
+        /// The (optional) reference root to use for storing/retrieving release checklists.
+        ///
+        /// The default value is `refs/notes/checklists`. Checklist evaluations will be stored using this path as a
+        /// prefix, for example, the `example` checklist would have its evaluations stored in
+        /// `refs/notes/checklists/example`.
+        ///
+        /// For this reason, users should take care not to manually create notes at this reference name, since it's
+        /// likely to cause errors.
+        public let checklistRefRoot: String?
+
+        /// This option, required for checklists, is the directory relative to the repository root which contains the
+        /// checklist files.
+        public let checklistDir: String?
+
+        /// This specifies the output path of checklists in a release template directory.
+        public let checklistOutputDir: String?
+
+        /// This option is the directory relative to the repository root which contains release templates, represented
+        /// either as files or directories. In the latter case, files fed through the templating engine should end in
+        /// `.template.{fileExtension}`.
+        public let templatesDir: String?
+
         public enum CodingKeys: String, CodingKey {
             case train = "train"
             case channel = "channel"
@@ -124,9 +146,22 @@ extension Configuration {
             case changelogExcludedCategories = "changelog_exclude_categories"
             case commitCategoryDisplayNames = "human_commit_categories"
             case attrsRef = "attrs_ref"
+            case checklistRefRoot = "checklist_ref_root"
+            case checklistDir = "checklist_dir"
+            case checklistOutputDir = "checklist_output_dir"
+            case templatesDir = "templates_dir"
+        }
+
+        public var checklistRefRootWithTrailingSlash: String? {
+            guard var checklistRef = checklistRefRoot else { return nil }
+            
+            while checklistRef.hasSuffix("/") {
+                checklistRef.removeLast()
+            }
+            checklistRef.append("/")
+            return checklistRef
         }
     }
-
 }
 
 extension Configuration.Defines {

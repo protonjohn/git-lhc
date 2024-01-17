@@ -54,6 +54,7 @@ public enum LHCEnvironment: String, EnvironmentVariable {
     case configFilePath = "LHC_CONFIG_PATH"
     case trainName = "LHC_TRAIN_NAME"
     case channel = "LHC_RELEASE_CHANNEL"
+    case previousChecklistResult = "LHC_CHECK_PREVIOUS"
     case jiraApiToken = "LHC_JIRA_APITOKEN"
     case jiraUsername = "LHC_JIRA_USERNAME"
     case jiraEndpoint = "LHC_JIRA_ENDPOINT"

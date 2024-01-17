@@ -160,7 +160,7 @@ extension Configuration {
         // This implementation is a bit weird because we can't rely on Bundle.module (it only gets generated if we're
         // built with SPM) and we have to use the real, non-stubbed FileManager so we can get the resource's contents
         // without conflicting with any test runs.
-        let bundle = Bundle(for: BundleFinder.self)
+        let bundle = Bundle(for: MyBundle.self)
         let paths = bundle.paths(forResourcesOfType: nil, inDirectory: nil)
 
         var resourcePath: String?
@@ -270,6 +270,13 @@ extension Configuration.Defines {
     }
 }
 
+extension Configuration.Defines: CustomStencilSubscriptable {
+    public subscript(key: String) -> String? {
+        guard let value = self[Configuration.Property(rawValue: key)] else { return nil }
+        return value
+    }
+}
+
 /// Not used for anything except letting `Bundle` figure out where we are.
-fileprivate class BundleFinder {
+class MyBundle {
 }

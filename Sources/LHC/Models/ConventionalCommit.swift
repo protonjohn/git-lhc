@@ -21,24 +21,7 @@ public struct ConventionalCommit: Codable {
         public let summary: String
     }
 
-    public struct Trailer: Codable, Equatable, CustomStringConvertible, Trailerish {
-        public let key: String
-        public let value: String
-
-        public init(key: String, value: String) {
-            self.key = key
-            self.value = value
-        }
-
-        public init?(parsing string: String) {
-            guard let value = try? Self.parser.parse(string[...]) else { return nil }
-            self = value
-        }
-
-        public var description: String {
-            "\(key): \(value)"
-        }
-    }
+    public typealias Trailer = Commit.Trailer
 
     public enum VersionBump: Codable, Equatable, Comparable {
         case prerelease(channel: String)
@@ -124,14 +107,40 @@ fileprivate extension ConventionalCommit.Header {
     }
 }
 
-fileprivate extension ConventionalCommit.Trailer {
+extension ConventionalCommit.Trailer: CustomStringConvertible {
+    public var description: String {
+        "\(key): \(value)"
+    }
+}
+
+extension ConventionalCommit.Trailer {
+    public static func trailers(from message: String) throws -> (body: String, trailers: [Self]) {
+        // Get the start index of each paragraph in the string. The regex matches either the start of the string, or at
+        // least two newlines that aren't followed by the end of the string.
+        let paragraphs = message.matches(of: try Regex("(((\r\n|\r|\n){2,}(?!$))|^)")).map(\.range.lowerBound)
+        let startOfLastParagraph = paragraphs.last!
+
+        let lastParagraph = message[startOfLastParagraph..<message.endIndex]
+        let lines = lastParagraph.split { $0.isNewline }
+
+        var trailers: [Self] = []
+        for line in lines.reversed() {
+            guard let trailer = try? Self.parser.parse(line) else {
+                return (message, [])
+            }
+
+            trailers.insert(trailer, at: 0)
+        }
+
+        return (String(message[message.startIndex..<startOfLastParagraph]), trailers)
+    }
+
     /// - Bug: The "BREAKING CHANGE" option doesn't parse the text correctly.
-    static let parser = Parse(input: Substring.self) {
+    fileprivate static let parser = Parse(input: Substring.self) {
         Peek { Prefix(1, allowing: .uppercaseLetters) }
         // Trailer key
         OneOf {
             "BREAKING CHANGE".map(String.init)
-            "BREAKING-CHANGE".map(String.init)
             CharacterSet.trailerKeyCharacters.map(String.init)
         }
         ": "
@@ -145,37 +154,9 @@ fileprivate extension ConventionalCommit.Trailer {
     }
 }
 
-extension Array<ConventionalCommit.Trailer> {
-    static func parse(message: Substring) -> (Self, firstTrailerIndex: Int) {
-        let lines = message.split(
-            separator: "\n",
-            omittingEmptySubsequences: false
-        )
-
-        var firstTrailerIndex = message.count
-        var trailers: [Element] = []
-        for line in lines.reversed() {
-            guard let trailer = try? Element.parser.parse(line) else {
-                // If we hit an empty line near the end of the notes, keep going.
-                if line.isEmpty && trailers.isEmpty {
-                    continue
-                }
-                break
-            }
-            trailers.insert(trailer, at: 0)
-            firstTrailerIndex -= (line.count + 1) // account for newline character
-        }
-
-        return (trailers, firstTrailerIndex)
-    }
-
-    public subscript(_ key: String) -> String? {
+extension Array<ConventionalCommit.Trailer>: CustomStencilSubscriptable {
+    public subscript(key: String) -> String? {
         first { $0.key == key }?.value
-    }
-
-    public init(message: String) {
-        let (trailers, _) = Self.parse(message: message[...])
-        self = trailers
     }
 }
 
@@ -190,20 +171,18 @@ extension ConventionalCommit {
         let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
         var components = message.split(
             separator: "\n",
-            maxSplits: 1,
-            omittingEmptySubsequences: false
+            maxSplits: 1
         )
 
         let subject = components.removeFirst()
         let header = try Header.parser.parse(subject)
-        guard let bodyAndMaybeTrailers = components.first else {
+        guard !components.isEmpty else {
             self.init(header: header, body: nil, trailers: [], attributes: attributes)
             return
         }
 
-        let (trailers, firstTrailerIndex) = Array<Trailer>.parse(message: bodyAndMaybeTrailers)
-        let bodyEndIndex = bodyAndMaybeTrailers.index(bodyAndMaybeTrailers.startIndex, offsetBy: firstTrailerIndex)
-        let body = bodyAndMaybeTrailers[..<bodyEndIndex]
+        let remainder = components.first!.trimmingPrefix(while: \.isWhitespace)
+        let (body, trailers) = try Trailer.trailers(from: String(remainder))
 
         self.init(
             header: header,
@@ -228,19 +207,6 @@ extension ConventionalCommit {
         } else {
             return .patch
         }
-    }
-}
-
-extension Note {
-    public var attributes: (body: String, trailers: [ConventionalCommit.Trailer]?) {
-        let (trailers, index) = Array<ConventionalCommit.Trailer>.parse(message: message[...])
-
-        guard !trailers.isEmpty else {
-            return (message, [])
-        }
-
-        let body = message[message.startIndex..<message.index(message.startIndex, offsetBy: index)]
-        return (String(body), trailers)
     }
 }
 

@@ -24,20 +24,6 @@ extension OID {
     }
 }
 
-extension TimeInterval {
-    static func minutes(_ minutes: Int) -> Self {
-        Self(minutes) * 60
-    }
-
-    static func hours(_ hours: Int) -> Self {
-        Self(hours) * .minutes(60)
-    }
-
-    static func days(_ days: Int) -> Self {
-        Self(days) * .hours(24)
-    }
-}
-
 extension Array {
     var second: Element? {
         guard count >= 2 else {

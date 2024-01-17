@@ -1,5 +1,5 @@
 //
-//  CreateRelease.swift
+//  New.swift
 //  
 //
 //  Created by John Biggs on 13.10.23.
@@ -12,9 +12,8 @@ import Version
 import LHC
 import LHCInternal
 
-struct CreateRelease: AsyncParsableCommand, QuietCommand {
+struct New: ParsableCommand, QuietCommand {
     static let configuration = CommandConfiguration(
-        commandName: "release",
         abstract: "Tag a release at HEAD, deriving a version according to the passed options if no version is specified."
     )
 
@@ -64,19 +63,10 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
     @Option(help: "The remote to use when pushing the tag.")
     var remote: String = "origin"
 
-    @Flag(
-        inversion: .prefixedNo,
-        help: LHCEnvironment.jiraEndpoint.value == nil ? .hidden : """
-            Don't attempt to communicate with JIRA. If you find yourself doing this often, consider \
-            unsetting \(LHCEnvironment.jiraEndpoint.rawValue).
-            """
-    )
-    var jira: Bool = true
-
     @Argument(
         transform: { (versionString: String) throws -> Version in
             guard let version = Version(versionString) else {
-                throw CreateReleaseError.invalidVersion(versionString)
+                throw NewError.invalidVersion(versionString)
             }
 
             return version
@@ -88,41 +78,22 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
         let forcedVersion = forcedVersion ?? parent.forcedVersion
 
         guard !prereleaseIdentifiers.contains(parent.channel.rawValue) else {
-            throw CreateReleaseError.optionAlreadySpecifies(parent.channel)
+            throw NewError.optionAlreadySpecifies(parent.channel)
         }
 
         if let forcedVersion {
             for prereleaseIdentifier in prereleaseIdentifiers {
                 guard !forcedVersion.prereleaseIdentifiers.contains(prereleaseIdentifier) else {
-                    throw CreateReleaseError.versionAlreadyContains(version: forcedVersion, identifier: prereleaseIdentifier)
+                    throw NewError.versionAlreadyContains(version: forcedVersion, identifier: prereleaseIdentifier)
                 }
             }
 
             for buildIdentifier in buildIdentifiers {
                 guard !forcedVersion.buildMetadataIdentifiers.contains(buildIdentifier) else {
-                    throw CreateReleaseError.versionAlreadyContains(version: forcedVersion, identifier: buildIdentifier)
+                    throw NewError.versionAlreadyContains(version: forcedVersion, identifier: buildIdentifier)
                 }
             }
         }
-    }
-
-    func push(repo: inout Repositoryish, tag: TagReferenceish) throws {
-        let privateKeyPath = identity
-        let publicKeyPath = URL(filePath: privateKeyPath, directoryHint: .notDirectory)
-            .appendingPathExtension("pub")
-            .path()
-
-        let passphrase = readPassphraseIfNotQuiet() ?? ""
-
-        try repo.push(
-            remote: remote,
-            credentials: .sshPath(
-                publicKeyPath: publicKeyPath,
-                privateKeyPath: privateKeyPath,
-                passphrase: passphrase
-            ),
-            reference: tag
-        )
     }
 
     mutating func createTag(in repo: inout Repositoryish, for release: Release, options: Configuration.Options?) throws {
@@ -144,63 +115,45 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
         }
 
         let signingKey = try? parent.gitConfig?.get().signingKey
-        let dateFormatter = DateFormatter()
-        // Sun Nov 12 16:20:42 2023 +0100
-        dateFormatter.dateFormat = "EEE MMM d HH:MM:SS YYYY Z"
+        let dateString = Internal.gitDateString()
         guard promptForConfirmationIfNotQuiet("""
             Will create \(signingKey != nil ? "and sign " : "")tag:
             tag \(tagName)
             Tagger: \(signature)
-            Date: ~\(dateFormatter.string(from: Date()))
+            Date: ~\(dateString)
 
             \(message)
 
             Continue?
             """, continueText: false) else {
-            throw CreateReleaseError.userAborted
+            throw NewError.userAborted
         }
 
-        var signingCallback: ((String) throws -> String)?
-        if let signingOptions = try parent.signingOptions() {
-            signingCallback = {
-                try LHC.sign($0, options: signingOptions)
-            }
-        }
+        let signingOptions = try parent.signingOptions()
 
         let tag = try repo.createTag(
             tagName,
             target: commit,
             signature: signature,
             message: message,
-            force: false,
-            signingCallback: signingCallback
-        )
+            force: false
+        ) {
+            guard let signingOptions else { return nil }
+            return try LHC.sign($0, options: signingOptions)
+        }
 
         if push {
             guard promptForConfirmationIfNotQuiet("Will push tag \(tagName) to \(remote).") else {
-                throw CreateReleaseError.userAborted
+                throw NewError.userAborted
             }
 
-            try push(repo: &repo, tag: tag)
+            let tagReference = try repo.reference(named: "refs/tags/\(tag.name)") as! TagReferenceish
+            try repo.push(remote: remote, reference: tagReference)
         }
     }
 
-    mutating func editNotes(for release: Release, options: Configuration.Options?) async throws -> String? {
-        guard jira,
-           let fieldName = options?.jiraReleaseNotesField,
-           let jiraClient = Internal.jiraClient,
-            case let projectIds = release.changes.values.flatMap({ $0.flatMap(\.projectIds) }),
-              !projectIds.isEmpty else {
-            return nil
-        }
-
-        let issues = try await jiraClient.issues(ids: projectIds)
-        var releaseNotes = issues.compactMap {
-            $0.fields.fieldByName(fieldName) as? String
-        }.map {
-            "- \($0)"
-        }.joined(separator: "\n")
-
+    mutating func editNotes(for release: Release, options: Configuration.Options?) throws -> String? {
+        var releaseNotes = ""
         if !quiet {
             Internal.print("Release notes:", releaseNotes, separator: "\n")
             if Internal.promptForConfirmation("Edit?", continueText: false, defaultAction: false) {
@@ -213,7 +166,7 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
         return releaseNotes
     }
 
-    mutating func run() async throws {
+    mutating func run() throws {
         Internal.initialize()
         let options = try parent.options?.get()
         let forcedVersion = forcedVersion ?? parent.forcedVersion
@@ -235,7 +188,7 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
             fatalError("Invariant error: no release found or created")
         }
 
-        if let notes = try await editNotes(for: release, options: options) {
+        if let notes = try editNotes(for: release, options: options), !notes.isEmpty {
             release = release.adding(notes: notes)
         }
 
@@ -243,7 +196,7 @@ struct CreateRelease: AsyncParsableCommand, QuietCommand {
     }
 }
 
-enum CreateReleaseError: Error, CustomStringConvertible {
+enum NewError: Error, CustomStringConvertible {
     case userAborted
     case invalidVersion(String)
     case requiresCreatingTag

@@ -54,6 +54,9 @@ struct Describe: ParsableCommand {
     @Flag(help: "Whether to include commit hashes in release descriptions.")
     var redactCommitHashes: Bool = false
 
+    @Flag(help: "Whether to include checklist names in release descriptions.")
+    var redactChecklists: Bool = false
+
     mutating func run() throws {
         Internal.initialize()
         let options = try parent.options?.get()
@@ -65,8 +68,8 @@ struct Describe: ParsableCommand {
         case .all:
             releases = try repo.allReleases(
                 allowDirty: dryRun,
-                untaggedReleaseChannel: parent.channel,
                 forceLatestVersionTo: nil,
+                channel: parent.channel,
                 options: options
             )
         case .latest:
@@ -97,7 +100,8 @@ struct Describe: ParsableCommand {
             releases: releases,
             format: format,
             includeCommitHashes: !redactCommitHashes,
-            includeProjectIds: !redactProjectIds
+            includeProjectIds: !redactProjectIds,
+            includeChecklists: !redactChecklists
         )
 
         if let outputPath = output?.path(), let data = result.data {
