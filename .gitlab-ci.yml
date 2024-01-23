@@ -1,4 +1,9 @@
+stages:
+  - pages
+  - release
+
 pages:
+  stage: pages
   tags:
     - vpn-apple-builds
   script: |
@@ -12,4 +17,16 @@ pages:
   artifacts:
     paths:
       - public
+
+release:
+  stage: release
+  tags:
+    - shared-small
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  script: echo "Creating release $CI_COMMIT_TAG"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    description: "git-lhc $CI_COMMIT_TAG"
+  rules:
+    - if: $CI_COMMIT_TAG =~ /\d+/
 

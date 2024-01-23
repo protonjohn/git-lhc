@@ -80,7 +80,7 @@ function main() {
     manpage
 
     echo "Generating fastlane usage..."
-    fastlane_readme
+    # fastlane_readme
 
     echo "Generating documentation..."
     swift package --allow-writing-to-directory "$output_dir" \

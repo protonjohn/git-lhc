@@ -127,7 +127,7 @@ public class TemplateLoader: Loader, CustomStringConvertible {
             var (key, contents) = $1
             guard let url = URL(string: key), let contents else {
                 // Still tell the caller where non-template files are, so it knows to copy them over.
-                $0[key] = nil
+                $0[key] = .some(nil)
                 return
             }
 
@@ -401,7 +401,7 @@ public class TemplateExtension: Stencil.Extension {
     func prefix(_ value: Any?, arguments: [Any]) throws -> Any? {
         guard arguments.count == 0 || arguments.first is Int else {
             throw TemplateSyntaxError("""
-                'drop_first' allows one argument, which must be an integer.
+                'prefix' allows one argument, which must be an integer.
                 """)
         }
 
@@ -416,16 +416,71 @@ public class TemplateExtension: Stencil.Extension {
             return value.prefix(arguments.first as? Int ?? 1) as any Collection
         default:
             throw TemplateSyntaxError("""
-                'drop_first' takes one value, which must be a collection.
+                'prefix' takes one value, which must be a collection.
                 """
             )
         }
     }
 
+    func replace(_ value: Any?, arguments: [Any]) throws -> Any? {
+        guard let substring = arguments.first as? String, let replacement = arguments.second as? String else {
+            throw TemplateSyntaxError("""
+                'replace' requires two arguments, which must strings.
+                """)
+        }
+
+        guard let value = value as? String else {
+            throw TemplateSyntaxError("""
+                'replace' takes one value, which must be a string.
+                """
+            )
+        }
+
+        return value.replacingOccurrences(of: substring, with: replacement)
+    }
+
+    func formatDate(_ value: Any?, arguments: [Any]) throws -> Any? {
+        guard arguments.count == 0 || arguments.first is String else {
+            throw TemplateSyntaxError("""
+                'format_date' allows one argument, which must be a string.
+                """)
+        }
+
+        guard let value = value as? Date else {
+            throw TemplateSyntaxError("""
+                'format_date' takes one value, which must be a date.
+                """
+            )
+        }
+
+        dateFormatter.dateFormat = arguments.first as? String ?? String.gitDateFormat
+        return dateFormatter.string(from: value)
+    }
+
+    func parseDate(_ value: Any?, arguments: [Any]) throws -> Any? {
+        guard arguments.count == 0 || arguments.first is String else {
+            throw TemplateSyntaxError("""
+                'parse_date' allows one argument, which must be a string.
+                """)
+        }
+
+        guard let value = value as? String else {
+            throw TemplateSyntaxError("""
+                'parse_date' takes one value, which must be a string.
+                """
+            )
+        }
+
+        dateFormatter.dateFormat = arguments.first as? String ?? String.gitDateFormat
+        return dateFormatter.date(from: value)
+    }
+
+
     public let repository: Repositoryish
     public let options: Configuration.Options?
 
     private lazy var aliasMap: AliasMap? = try? repository.aliasMap()
+    private lazy var dateFormatter = DateFormatter()
 
     public init(_ repository: Repositoryish, options: Configuration.Options?) {
         self.repository = repository
@@ -443,6 +498,9 @@ public class TemplateExtension: Stencil.Extension {
         registerFilter("alias", filter: alias)
         registerFilter("random", filter: random)
         registerFilter("prefix", filter: self.prefix)
+        registerFilter("replace", filter: replace)
+        registerFilter("format_date", filter: formatDate)
+        registerFilter("parse_date", filter: parseDate)
     }
 }
 
@@ -474,7 +532,8 @@ extension Stencil.Environment {
                    repository,
                    options: options
                )
-           ]
+           ],
+           trimBehaviour: .smart
        )
     }
 
@@ -495,7 +554,7 @@ extension Stencil.Environment {
         var result: [String: String?] = [:]
         for (subpath, contents) in templates {
             guard let (template, headers) = contents else {
-                result[subpath] = nil
+                result[subpath] = .some(nil)
                 continue
             }
 

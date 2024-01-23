@@ -849,7 +849,7 @@ def eval_config(arguments)
         git-lhc describe \
         -r #{$repo_path} \
         --format json \
-        --dry-run \
+        --show HEAD \
         --channel #{arguments[:channel]} \
         --train #{arguments[:train]}`
 

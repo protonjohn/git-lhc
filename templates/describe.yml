@@ -1,0 +1,56 @@
+# Create a description for the given tag, or perform a dry run for all trains if necessary if no tag exists.
+# Inputs "templates" and "trains" should be whitespace-separated if multiple values are desired.
+# Use `cmd_prefix` to specify a run prefix or bootstrap method of your choice, e.g., "mint run ".
+
+spec:
+  inputs:
+    job_prefix:
+      default: lhc:
+    cmd_prefix:
+      default: ""
+    templates:
+      default: release
+    predescribe:
+      default: ""
+    output_directory:
+      default: describe
+    # Mandatory fields
+    trains:
+      type: string
+    stage:
+      type: string
+
+---
+$[[ inputs.job_prefix ]]describe:
+  # TODO: runner tag and image
+  stage: $[[ inputs.stage ]]
+  script: |
+    TEMPLATE_ARGS=()
+    function add_arg() {
+        $TEMPLATE_ARGS+="$1"
+        $TEMPLATE_ARGS+="$2"
+    }
+
+    for template in $[[ inputs.templates ]]; do
+        add_arg "--template" "$template"
+    done
+
+    add_arg "--define" "CI=${CI:-false}"
+    add_arg "--define" "CI_JOB_ID=${CI_JOB_ID:-0}"
+    add_arg "--define" "CI_PIPELINE_ID=${CI_PIPELINE_ID:-0}"
+
+    $[[ inputs.predescribe ]]
+
+    if [ -n "$CI_COMMIT_TAG" ]; then
+        $[[ inputs.cmd_prefix ]]git-lhc describe --show "$CI_COMMIT_TAG" --output "$[[ inputs.output_directory ]]/${CI_COMMIT_TAG}" "${TEMPLATE_ARGS[@]}"
+    else
+        local train # choo choo
+        # we don't know what this could be building for (it's probably an MR or scheduled pipeline), so describe each train according to the state of HEAD.
+        # future: figure out which trains actually need evaluating -- describe should return an empty changeset if nothing has been modified.
+        for train in $[[ inputs.trains ]]; do
+            $[[ inputs.cmd_prefix ]]git-lhc describe --train "$train" --show HEAD --output "$[[ inputs.output_directory ]]/${train}" "${TEMPLATE_ARGS[@]}"
+        done
+    fi
+  artifacts:
+    paths:
+      - $[[ inputs.output_directory ]]/*

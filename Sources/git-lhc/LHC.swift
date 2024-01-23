@@ -121,7 +121,6 @@ public struct LHC: AsyncParsableCommand {
 
         mutating func allTrainOptions() throws -> [String?: Configuration.Options] {
             guard let options = try? options?.get() else { return [:] }
-            guard let train = options.train else { return [nil: options] }
             guard var trains = options.trains else { return [train: options] }
 
             var result: [String: Configuration.Options] = [:]

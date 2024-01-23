@@ -57,13 +57,7 @@ public struct Release {
 
     /// The channel associated with this release.
     public var channel: ReleaseChannel {
-        for identifier in version?.prereleaseIdentifiers ?? [] {
-            if let channel = ReleaseChannel(rawValue: identifier) {
-                return channel
-            }
-        }
-
-        return .production
+        version?.releaseChannel ?? .production
     }
 
     /// A software change, adhering to conventional commit syntax.
@@ -398,8 +392,18 @@ public enum ReleaseError: Error {
 /// ranges onto the private `releases()` function which is responsible for creating the actual Release objects.
 extension Repositoryish {
     private typealias Trailer = ConventionalCommit.Trailer
-    private typealias TaggedRelease = (object: ObjectType, version: Version)
-    private typealias ReleaseRange = (last: TaggedRelease?, release: ObjectType)
+
+    private typealias TaggedRelease = (
+        object: ObjectType,
+        version: Version,
+        tagName: String
+    )
+
+    private typealias ReleaseRange = (
+        last: TaggedRelease?,
+        release: ObjectType,
+        tagName: String?
+    )
 
     private func tagsAndVersions(options: Configuration.Options?) throws -> [TaggedRelease] {
         let result = try allTags().compactMap { (tag: TagReferenceish) -> TaggedRelease? in
@@ -410,7 +414,7 @@ extension Repositoryish {
 
             guard let object = try? object(tag.tagOid ?? tag.oid) else { return nil }
 
-            return (object: object, version: version)
+            return (object: object, version: version, tagName: tag.name)
         }.sorted { $0.version < $1.version }
         return result
     }
@@ -436,7 +440,7 @@ extension Repositoryish {
 
     private func taggedReleaseRanges(_ taggedReleases: [TaggedRelease]) throws -> [ReleaseRange] {
         return try taggedReleases.enumerated().reduce(into: []) { result, element in
-            let (i, (tag, _)) = element
+            let (i, (tag, _, name)) = element
 
             guard let target = tag.commitOid else {
                 throw GitError(
@@ -450,7 +454,8 @@ extension Repositoryish {
                 among: taggedReleases[0..<i],
                 from: target
             )
-            result.append((lastVersion, tag))
+
+            result.append((lastVersion, tag, name))
         }
     }
 
@@ -467,7 +472,7 @@ extension Repositoryish {
         let checklistRefNames = try? checklistRefs(options: options)
         var objectChecklistNames: [ObjectID: [String]] = [:]
 
-        for (last, release) in ranges {
+        for (last, release, tagName) in ranges {
             let lastTarget = last?.object.commitOid
             guard let releaseTarget = release.commitOid else {
                 throw GitError(
@@ -497,7 +502,9 @@ extension Repositoryish {
                         return (commit.oid, cc)
                     }
 
-                    guard categories.contains(cc.header.type) == true else {
+                    guard cc.header.type == "merge" ||
+                            cc.header.type == "revert" ||
+                            categories.contains(cc.header.type) == true else {
                         badCommits.append(commit)
                         return nil
                     }
@@ -556,18 +563,16 @@ extension Repositoryish {
 
             let conventionalCommits = commits.map(\.cc)
 
-            var tagName: String?
             var tagOid: ObjectID?
             let version: Version
-            if let releaseTag = release as? Tagish,
+            if let tagName,
                let taggedVersion = Version(
                    prefix: options?.tagPrefix,
-                   versionString: releaseTag.name
+                   versionString: tagName
                )
             {
                 version = taggedVersion
-                tagName = releaseTag.name
-                tagOid = releaseTag.oid
+                tagOid = (release as? Tagish)?.oid
             } else if let forcedVersion {
                 version = forcedVersion
             } else if let last {
@@ -623,7 +628,10 @@ extension Repositoryish {
             from: releaseTarget
         )
 
-        return try releases(fromRanges: [(lastVersion, releaseTag.object)], options: options).0.first
+        return try releases(
+            fromRanges: [(lastVersion, releaseTag.object, releaseTag.tagName)],
+            options: options
+        ).0.first
     }
 
     public func latestRelease(
@@ -645,7 +653,7 @@ extension Repositoryish {
             let oid = thisTag.tagOid ?? thisTag.oid
             let object = try object(oid)
             return try releases(
-                fromRanges: [(lastVersion, object)],
+                fromRanges: [(lastVersion, object, thisTag.name)],
                 options: options
             ).0.first
         } else if let thisVersion = try lastReachableRelease(
@@ -657,8 +665,9 @@ extension Repositoryish {
             // We could have been passed a ReferenceType for HEAD that wasn't a tag, even if HEAD is in fact tagged.
             // If we do a reverse lookup for the latest tag and it happens to be the same OID as HEAD, use that tag
             // as the reference type instead. This lets us make sure we set the "tagged" property correctly.
+
             return try releases(
-                fromRanges: [(lastVersion, thisVersion.object)],
+                fromRanges: [(lastVersion, thisVersion.object, thisVersion.tagName)],
                 options: options
             ).0.first
         } else if allowDirty {
@@ -666,7 +675,7 @@ extension Repositoryish {
             // For this, we need to make sure that `releases' has seen all of the possible release tags for the given
             // release channel, if that release channel isn't production, in order to calculate the version correctly.
             let object = try commit(head.oid) as ObjectType
-            var ranges = [(lastVersion, object)]
+            var ranges: [ReleaseRange] = [(lastVersion, object, nil)]
             if untaggedReleaseChannel.isPrerelease {
                 let otherVersions = try taggedReleaseRanges(
                     taggedReleases.filter {
@@ -720,7 +729,7 @@ extension Repositoryish {
                 among: taggedReleases[...],
                 from: target
             )
-            ranges.append((lastUntaggedVersion, object))
+            ranges.append((lastUntaggedVersion, object, nil))
         }
 
         // We want the most recent versions first.
@@ -790,12 +799,9 @@ extension Stencil.Environment {
         release: Release,
         additionalContext: [String: Any]
     ) throws -> [String: Data] {
-        var context: [String: Any] = additionalContext
-        context["release"] = release
-
         return try renderTemplates(
             nameOrRoot: templateName, // where is template root?
-            additionalContext: context
+            additionalContext: additionalContext
         ).reduce(into: [:]) {
             guard let contents = $1.value, let data = contents.data(using: .utf8) else {
                 let path = "\(options!.templatesDir!)/\($1.key)"
