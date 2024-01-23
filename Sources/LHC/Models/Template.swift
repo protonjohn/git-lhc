@@ -8,8 +8,13 @@ import Foundation
 import Yams // For decoding a yaml header, if it exists
 import System
 import Stencil
+import Markdown
 import SwiftGit2
 import LHCInternal
+
+public protocol CustomStencilSubscriptable {
+    subscript(_ key: String) -> String? { get }
+}
 
 /// Load a template from the repository.
 ///
@@ -42,14 +47,14 @@ public class TemplateLoader: Loader, CustomStringConvertible {
         for subsubURL in directoryContents {
             let absoluteURL = subsubURL.absoluteURL
             if (try? subsubURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
-                try recursivelyLoadContents(fullURL, subpath: subsubURL.path(), into: &contents)
+                try recursivelyLoadContents(fullURL, subpath: subsubURL.path(percentEncoded: false), into: &contents)
             } else if subsubURL.pathExtensions.contains("template"),
-                      let templateContents = Internal.fileManager.contents(atPath: absoluteURL.path()) {
+                      let templateContents = Internal.fileManager.contents(atPath: absoluteURL.path(percentEncoded: false)) {
                 let string = String(data: templateContents, encoding: .utf8)
-                contents[fullURL.appending(component: subsubURL.path()).path()] = string
+                contents[fullURL.appending(component: subsubURL.path(percentEncoded: false)).path(percentEncoded: false)] = string
             } else {
                 // Not a template or a directory, but still a file.
-                contents[fullURL.appending(component: subsubURL.path()).path()] = .some(nil)
+                contents[fullURL.appending(component: subsubURL.path(percentEncoded: false)).path(percentEncoded: false)] = .some(nil)
             }
         }
     }
@@ -83,7 +88,7 @@ public class TemplateLoader: Loader, CustomStringConvertible {
             for path in paths {
                 guard let resourceBundle = Bundle(path: path),
                       let resourcePath = resourceBundle.path(
-                          forResource: fileURL.deletingPathExtension().path(),
+                          forResource: fileURL.deletingPathExtension().path(percentEncoded: false),
                           ofType: fileURL.pathExtension
                       ) else {
                     continue
@@ -100,7 +105,8 @@ public class TemplateLoader: Loader, CustomStringConvertible {
             // further down, modify or remove them at your own peril.
             for templateDirectoryURL in self.urls {
                 let templateURL = URL(filePath: nameOrRoot, relativeTo: templateDirectoryURL)
-                if Internal.fileManager.fileExists(atPath: templateURL.absoluteURL.path(), isDirectory: &isDirectory) {
+                let templateAbsolutePath = templateURL.absoluteURL.path(percentEncoded: false)
+                if Internal.fileManager.fileExists(atPath: templateAbsolutePath, isDirectory: &isDirectory) {
                     url = templateURL
                     break
                 }
@@ -115,7 +121,7 @@ public class TemplateLoader: Loader, CustomStringConvertible {
         if isDirectory == true {
             try recursivelyLoadContents(url, subpath: nil, into: &templateContents)
         } else {
-            guard let data = Internal.fileManager.contents(atPath: url.absoluteURL.path()),
+            guard let data = Internal.fileManager.contents(atPath: url.absoluteURL.path(percentEncoded: false)),
                   let contents = String(data: data, encoding: .utf8) else {
                 throw TemplateDoesNotExist(templateNames: [nameOrRoot], loader: self)
             }
@@ -127,7 +133,7 @@ public class TemplateLoader: Loader, CustomStringConvertible {
             var (key, contents) = $1
             guard let url = URL(string: key), let contents else {
                 // Still tell the caller where non-template files are, so it knows to copy them over.
-                $0[key] = nil
+                $0[key] = .some(nil)
                 return
             }
 
@@ -167,7 +173,7 @@ public class TemplateExtension: Stencil.Extension {
     func `get`(_ value: Any?, _ arguments: [Any]) throws -> Any? {
         guard arguments.count == 1, let key = arguments.first else {
             throw TemplateSyntaxError("""
-                'lookup' requires one argument, which must be a key in a dictionary.
+                'get' requires one argument, which must be a key in a dictionary.
                 """
             )
         }
@@ -184,6 +190,12 @@ public class TemplateExtension: Stencil.Extension {
                 return item // Yes, the item, not the value itself.
             }
             return nil
+        case let (key, value) as (String, Any):
+            let mirror = Mirror(reflecting: value)
+            guard let property = mirror.children.first(where: { $0.label == key }) else {
+                return nil
+            }
+            return property.value
         default:
             throw TemplateSyntaxError("""
                 Don't know how to index into a \(type(of: value)) with a \(type(of: key)).
@@ -220,7 +232,7 @@ public class TemplateExtension: Stencil.Extension {
         }
     }
 
-    func attrs(_ value: Any?, _ arguments: [Any]) throws -> Any? {
+    func attrs(_ value: Any?, _ arguments: [Any], context: Context) throws -> Any? {
         guard let attrsRef = options?.attrsRef else { return nil }
 
         let note: Note?
@@ -232,6 +244,16 @@ public class TemplateExtension: Stencil.Extension {
             note = try? repository.note(for: tag.oid, notesRef: attrsRef)
         case let commit as Commitish:
             note = try? repository.note(for: commit.oid, notesRef: attrsRef)
+        case let oid as ObjectID:
+            note = try? repository.note(for: oid, notesRef: attrsRef)
+        case let string as String:
+            if let oid = ObjectID(string: string) {
+                note = try? repository.note(for: oid, notesRef: attrsRef)
+            } else if let object = try? repository.object(parsing: string) {
+                note = try? repository.note(for: object.oid, notesRef: attrsRef)
+            } else {
+                fallthrough
+            }
         default:
             return nil
         }
@@ -240,13 +262,19 @@ public class TemplateExtension: Stencil.Extension {
         guard arguments.count > 0 else { return note }
 
         guard arguments.count == 1, let key = arguments.first as? String else {
+            if arguments.first == nil {
+                // We know that arguments.count > 0, so arguments.first must be nil, which we'll allow in case somebody
+                // was trying to lookup a config key value and the config key ended up being nil.
+                return nil
+            }
+
             throw TemplateSyntaxError("""
                 'attrs' allows one argument, which must be a string.
                 """)
         }
 
-        let trailers = try [Commit.Trailer](message: note.message)
-        guard let value = trailers.first(where: { $0.key == key }) else {
+        let (_, trailers) = try ConventionalCommit.Trailer.trailers(from: note.message)
+        guard let value = trailers.first(where: { $0.key == key })?.value else {
             return nil
         }
 
@@ -281,29 +309,26 @@ public class TemplateExtension: Stencil.Extension {
         return (-date.timeIntervalSinceNow) > timeInterval
     }
 
-    func revParse(_ value: Any?, _ arguments: [Any]) throws -> Any? {
-        guard arguments.count == 0 else {
+    func revParse(_ value: Any?) throws -> Any? {
+        switch value {
+        case let oid as ObjectID:
+            return try? repository.object(oid)
+        case let pointer as any PointerType:
+            return try? repository.object(pointer.oid)
+        case let string as String:
+            if let oid = ObjectID(string: string) {
+                return try? repository.object(oid)
+            } else {
+                return try? repository.object(parsing: string)
+            }
+        default:
             throw TemplateSyntaxError("""
-                'rev_parse' does not take any arguments.
+                'rev_parse' requires a string value or object ID.
                 """)
         }
-
-        guard let value = value as? String else {
-            throw TemplateSyntaxError("""
-                'rev_parse' requires a string value.
-                """)
-        }
-
-        return try? repository.object(parsing: value)
     }
 
-    func objectType(_ value: Any?, _ arguments: [Any]) throws -> Any? {
-        guard arguments.count == 0 else {
-            throw TemplateSyntaxError("""
-                'object_type' does not take any arguments.
-                """)
-        }
-
+    func objectType(_ value: Any?) throws -> Any? {
         let oid: ObjectID
         switch value {
         case let value as String:
@@ -327,14 +352,7 @@ public class TemplateExtension: Stencil.Extension {
         return String(describing: type(of: object).type)
     }
 
-    func commits(_ value: Any?, _ arguments: [Any]) throws -> Any? {
-        guard arguments.count == 0 else {
-            throw TemplateSyntaxError("""
-                'commits' does not take any arguments.
-                """
-            )
-        }
-
+    func commits(_ value: Any?) throws -> Any? {
         guard let value = value as? (any ObjectType) else {
             throw TemplateSyntaxError("""
                 'commits' requires a value, which must be a Git object type.
@@ -380,14 +398,7 @@ public class TemplateExtension: Stencil.Extension {
         return try? aliasMap?.resolve(name: name, email: email)
     }
 
-    func random(_ value: Any?, arguments: [Any]) throws -> Any? {
-        guard arguments.count == 0 else {
-            throw TemplateSyntaxError("""
-                'random' does not take any arguments.
-                """
-            )
-        }
-
+    func random(_ value: Any?) throws -> Any? {
         guard let value = value as? any Collection else {
             throw TemplateSyntaxError("""
                 'random' takes one value, which must be a collection.
@@ -401,7 +412,7 @@ public class TemplateExtension: Stencil.Extension {
     func prefix(_ value: Any?, arguments: [Any]) throws -> Any? {
         guard arguments.count == 0 || arguments.first is Int else {
             throw TemplateSyntaxError("""
-                'drop_first' allows one argument, which must be an integer.
+                'prefix' allows one argument, which must be an integer.
                 """)
         }
 
@@ -416,19 +427,103 @@ public class TemplateExtension: Stencil.Extension {
             return value.prefix(arguments.first as? Int ?? 1) as any Collection
         default:
             throw TemplateSyntaxError("""
-                'drop_first' takes one value, which must be a collection.
+                'prefix' takes one value, which must be a collection.
                 """
             )
         }
     }
 
+    func replace(_ value: Any?, arguments: [Any]) throws -> Any? {
+        guard let substring = arguments.first as? String, let replacement = arguments.second as? String else {
+            throw TemplateSyntaxError("""
+                'replace' requires two arguments, which must strings.
+                """)
+        }
+
+        guard let value = value as? String else {
+            throw TemplateSyntaxError("""
+                'replace' takes one value, which must be a string.
+                """
+            )
+        }
+
+        return value.replacingOccurrences(of: substring, with: replacement)
+    }
+
+    func formatDate(_ value: Any?, arguments: [Any]) throws -> Any? {
+        guard arguments.count == 0 || arguments.first is String else {
+            throw TemplateSyntaxError("""
+                The first argument to 'format_date' must be a string.
+                """)
+        }
+
+        guard arguments.count < 2 || arguments.second is Bool else {
+            throw TemplateSyntaxError("""
+                The first argument to 'format_date' must be a bool.
+                """)
+        }
+
+        let gmt = (arguments.second as? Bool) ?? false
+
+        guard let value = value as? Date else {
+            throw TemplateSyntaxError("""
+                'format_date' takes one value, which must be a date.
+                """
+            )
+        }
+
+        let dateFormat = arguments.first as? String ?? String.gitDateFormat
+        dateFormatter.dateFormat = dateFormat
+        dateFormatter.timeZone = gmt ? .gmt : .autoupdatingCurrent
+        return dateFormatter.string(from: value)
+    }
+
+    func parseDate(_ value: Any?, arguments: [Any]) throws -> Any? {
+        guard arguments.count == 0 || arguments.first is String else {
+            throw TemplateSyntaxError("""
+                'parse_date' allows one argument, which must be a string.
+                """)
+        }
+
+        guard let value = value as? String else {
+            throw TemplateSyntaxError("""
+                'parse_date' takes one value, which must be a string.
+                """
+            )
+        }
+
+        let dateFormat = arguments.first as? String ?? String.gitDateFormat
+        dateFormatter.dateFormat = dateFormat
+        return dateFormatter.date(from: value)
+    }
+
+    func formatMarkdown(_ value: Any?) throws -> Any? {
+        guard let value = value as? String else {
+            throw TemplateSyntaxError("""
+                'format_markdown' takes one value, which must be a string.
+                """
+            )
+        }
+
+        var formatter = MarkdownToHTML()
+        let document = Document(parsing: value)
+        return formatter.visit(document)
+    }
+
     public let repository: Repositoryish
     public let options: Configuration.Options?
+    public let evaluatedConfig: Configuration.Defines?
 
     private lazy var aliasMap: AliasMap? = try? repository.aliasMap()
+    private lazy var dateFormatter = DateFormatter()
 
-    public init(_ repository: Repositoryish, options: Configuration.Options?) {
+    public init(
+        _ repository: Repositoryish,
+        options: Configuration.Options?,
+        evaluatedConfig: Configuration.Defines?
+    ) {
         self.repository = repository
+        self.evaluatedConfig = evaluatedConfig
         self.options = options
 
         super.init()
@@ -443,6 +538,10 @@ public class TemplateExtension: Stencil.Extension {
         registerFilter("alias", filter: alias)
         registerFilter("random", filter: random)
         registerFilter("prefix", filter: self.prefix)
+        registerFilter("replace", filter: replace)
+        registerFilter("parse_date", filter: parseDate)
+        registerFilter("format_date", filter: formatDate)
+        registerFilter("format_markdown", filter: formatMarkdown)
     }
 }
 
@@ -462,9 +561,14 @@ extension Stencil.Environment {
         templateExtension.options
     }
 
+    var evaluatedConfig: Configuration.Defines? {
+        templateExtension.evaluatedConfig
+    }
+
     public init(
         repository: Repositoryish,
         options: Configuration.Options?,
+        evaluatedConfig: Configuration.Defines?,
         urls: [URL]
     ) {
         self = Stencil.Environment(
@@ -472,9 +576,11 @@ extension Stencil.Environment {
            extensions: [
                TemplateExtension(
                    repository,
-                   options: options
+                   options: options,
+                   evaluatedConfig: evaluatedConfig
                )
-           ]
+           ],
+           trimBehaviour: .smart
        )
     }
 
@@ -495,7 +601,7 @@ extension Stencil.Environment {
         var result: [String: String?] = [:]
         for (subpath, contents) in templates {
             guard let (template, headers) = contents else {
-                result[subpath] = nil
+                result[subpath] = .some(nil)
                 continue
             }
 
@@ -511,14 +617,30 @@ extension Stencil.Environment {
     }
 }
 
-public enum TemplateError: String, Error, CustomStringConvertible {
-    case notFound = "Template not found."
+public enum TemplateError: Error, CustomStringConvertible {
+    case notFound
+    case userError(String)
 
     public var description: String {
-        rawValue
+        switch self {
+        case .notFound:
+            return "Template not found."
+        case let .userError(errorString):
+            return errorString
+        }
     }
 }
 
-public protocol CustomStencilSubscriptable {
-    subscript(_ key: String) -> String? { get }
+extension Pointer: CustomStencilSubscriptable {
+    public subscript(key: String) -> String? {
+        switch key {
+        case "oid":
+            return oid.description
+        case "type":
+            return String(describing: type)
+        default:
+            return nil
+        }
+    }
 }
+

@@ -67,12 +67,18 @@ struct Check: AsyncParsableCommand {
         let environment = Stencil.Environment(
             repository: repo,
             options: options,
+            evaluatedConfig: try? parent.evaluatedConfig?.get(),
             urls: [
                 checklistsURL,
                 checklistsURL.appending(path: "templates", directoryHint: .isDirectory)
             ]
         )
-        var context: [String: Any] = [:]
+        var context: [String: Any] = [
+            "now": Date(),
+            "uuid": UUID().uuidString,
+            "git-lhc": Internal.processInfo.arguments.first!,
+        ]
+
         if let evaluatedConfig = try parent.evaluatedConfig?.get() {
             context["config"] = evaluatedConfig.jsonDict
         }

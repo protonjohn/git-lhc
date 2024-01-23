@@ -281,7 +281,7 @@ extension TransferProgress {
 
         let last = lines.removeLast()
         for line in lines {
-            Internal.print("remote: \(line)\n")
+            Internal.print("remote: \(line)")
         }
 
         remoteProgress = String(last)
@@ -334,7 +334,7 @@ extension TransferProgress {
             for commit in (try? repo.commits(from: update.currentTarget, since: nil)) ?? [] {
                 oids.insert(commit.oid)
             }
-            let length = (try? ObjectID.minimumLength(toLosslesslyRepresent: oids)) ?? ObjectID.stringLength
+            let length = (try? ObjectID.minimumLength(toLosslesslyRepresent: oids)) ?? 8
 
             let current = update.currentTarget.description.dropFirst(length)
             let new = update.newTarget.description.dropFirst(length)

@@ -1,0 +1,30 @@
+# Lint the given range of commits.
+
+spec:
+  inputs:
+    git_depth:
+      type: number
+      default: 50
+    git_submodule_strategy:
+      default: none
+    job_prefix:
+      default: 'lhc:'
+    cmd_prefix:
+      default: ""
+    # the pipeline stage the describe job will run in.
+    stage:
+      default: lint
+    # Mandatory fields
+    tag:
+      type: string
+
+---
+$[[ inputs.job_prefix ]]lint:commits:
+  variables:
+    GIT_DEPTH: $[[ inputs.git_depth ]]
+    GIT_SUBMODULE_STRATEGY: $[[ inputs.git_submodule_strategy ]]
+  stage: $[[ inputs.stage ]]
+  tags: 
+    - $[[ inputs.tag ]]
+  script:
+    - $[[ inputs.cmd_prefix ]]git-lhc lint --verbose

@@ -9,6 +9,7 @@ import Foundation
 import LHCInternal
 import Markdown
 import Stencil
+import SwiftGit2
 
 public struct Checklist {
     public struct Step {
@@ -561,22 +562,20 @@ public extension Stencil.Environment {
         checklistRef.append(checklist)
 
         var context = context
-        context["lhc"] = Internal.processInfo.arguments.first
-        context["target"] = target.description
-        context["repository"] = repository
+        context["object"] = target.description
 
         if let options {
             context["options"] = options
         }
 
         let commits: [Commitish]
-        var lastOid: ObjectID?
-        if let (lastObject, lastNote) = try repository.lastNotedObject(from: target, notesRef: checklistRef) {
-            lastOid = lastObject.oid
+        var lastObject: ObjectType?
+        if let (object, lastNote) = try repository.lastNotedObject(from: target, notesRef: checklistRef) {
             context["last_note"] = lastNote
-            context["last_target"] = lastOid?.description
+            context["last_target"] = object
+            lastObject = object
 
-            var sinceOid = lastObject.oid
+            var sinceOid = object.oid
             if let lastTag = lastObject as? Tagish {
                 sinceOid = lastTag.target.oid
             }
@@ -590,8 +589,8 @@ public extension Stencil.Environment {
 
         var oids: Set<ObjectID> = [target]
         oids.formUnion(commits.map(\.oid))
-        if let lastOid {
-            oids.insert(lastOid)
+        if let lastObject {
+            oids.insert(lastObject.oid)
         }
 
         let minimumLength = try? ObjectID.minimumLength(toLosslesslyRepresent: oids)

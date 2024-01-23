@@ -51,7 +51,7 @@ extension FileManagerish {
     /// editFile: Spawn an editor session if detected to be running in a terminal.
     @available(*, noasync, message: "This function is not available from an async context.")
     public mutating func editFile(_ editableString: String, temporaryFileName: String? = nil) throws -> String? {
-        let tempFilePath = try tempFile(contents: editableString.data(using: .utf8), fileName: temporaryFileName).path()
+        let tempFilePath = try tempFile(contents: editableString.data(using: .utf8), fileName: temporaryFileName).path(percentEncoded: false)
 
         let pointer: UnsafeMutablePointer<Result<Int32, Error>?> = .allocate(capacity: 1)
         pointer.initialize(to: nil)
@@ -101,8 +101,8 @@ extension FileManagerish {
             filePath: fileName ?? Internal.processInfo.globallyUniqueString,
             relativeTo: tempDir
         ).absoluteURL
-        guard createFile(atPath: fileName.path(), contents: contents) else {
-            throw FileError.couldntCreateFile(at: fileName.path())
+        guard createFile(atPath: fileName.path(percentEncoded: false), contents: contents) else {
+            throw FileError.couldntCreateFile(at: fileName.path(percentEncoded: false))
         }
 
         return fileName
@@ -131,11 +131,11 @@ extension FileManagerish {
         url = url.appending(path: fileName)
 
         var thisIsDir: Bool?
-        while !fileExists(atPath: url.path(), isDirectory: &thisIsDir) ||
+        while !fileExists(atPath: url.path(percentEncoded: false), isDirectory: &thisIsDir) ||
                 (isDirectory != nil && isDirectory != thisIsDir) {
             url = url.deletingLastPathComponent()
 
-            guard url.path() != "/" &&
+            guard url.path(percentEncoded: false) != "/" &&
                     (try? canonicalPath(for: url)) != "/" else {
                 return nil
             }
@@ -153,7 +153,7 @@ extension FileManagerish {
                 .appending(component: "../", directoryHint: .inferFromPath)
                 .appending(component: fileName, directoryHint: directoryHint)
         }
-        return url.path()
+        return url.path(percentEncoded: false)
     }
 }
 

@@ -1,0 +1,42 @@
+{#
+# Template for a Sparkle XML file. The result still needs for APPCAST_DOWNLOAD_URL, APPCAST_SHA256_HASH, and
+# APPCAST_ED_SIGNATURE to be substituted, which can easily be done with envsubst(1).
+#}<item>	
+    {% block item %}
+    <title>{% block title %}Version {{ version }}{% endblock %}</title>
+    <sparkle:version>{% block version %}{{ version }}{% endblock %}</sparkle:version>
+    <sparkle:shortVersionString>{% block short_version %}{{ short_version }}{% endblock %}</sparkle:version>
+    <pubDate>{% block publish_date %}{{ now|format_date:"EEEE, d MMM yyyy HH:mm:ss Z" }}{% endblock %}</pubDate>
+    {% if config["appcast_minimum_system_version"] %}
+    <sparkle:minimumSystemVersion>{{ config["appcast_minimum_system_version"] }}</sparkle:minimumSystemVersion>
+    {% endif %}
+    {% if config["appcast_maximum_system_version"] %}
+    <sparkle:maximumSystemVersion>{{ config["appcast_maximum_system_version"] }}</sparkle:maximumSystemVersion>
+    {% endif %}
+    {% if config["appcast_channel"] %}
+    <sparkle:channel>{{ config["appcast_channel"] }}</sparkle:channel>
+    {% endif %}
+    {% if config["appcast_rollout_interval"] %}
+    <sparkle:phasedRolloutInterval>{{ config["appcast_rollout_interval"] }}</sparkle:phasedRolloutInterval>
+    {% endif %}
+    {% if target|attrs:config["release_immediately_trailer"] %}
+    <sparkle:criticalUpdate></sparkle:criticalUpdate>
+    {% endif %}
+    <description>
+        <![CDATA[
+            <!DOCTYPE html>
+            <body>
+{% filter format_markdown|indent:12," ",true %}
+
+{{ release.body }}
+
+{% endfilter +%}
+            </body>
+            </html>
+        ]]>
+    </description>
+    <enclosure url="$APPCAST_DOWNLOAD_URL"
+	       $APPCAST_SIGNATURE
+	       type="application/octet-stream" />
+    {% endblock %}
+</item>

@@ -74,6 +74,45 @@ public struct ConventionalCommit: Codable {
 }
 
 fileprivate extension ConventionalCommit.Header {
+    /// This is used for messages that are formatted by git itself, like reverts and merges.
+    /// They're well-formatted and useful enough that we can ingest them as part of the release log.
+    /// - Bug: This doesn't handle octopus merges yet, or other less common kinds of merge messages.
+    static let formattedMessageParser = Parse(input: Substring.self) {
+        /*
+         * TODO: handle octopus messages, optional 'into' and 'of', multiple 'of' directives, and merge HEAD messages.
+         *
+         * Example of a more complicated (if highly unlikely) merge message:
+         * Merge branches 'foo', 'bar', 'baz', and 'widget', tags '1.2.3', '2.3.4', '3.4.5' and '4.5.6' of github.com:fred/encabulinator, commit '5268fa491725d0f78eacb0fadd0d3971e08e17d2' and remote-tracking branch 'wilmas-gitlab/fizzbuzz' of gitlab.com:wilma/encabulinator into main
+         */
+        OneOf {
+            Parse {
+                "Revert "
+                Rest().map { $0.trimmingCharacters(in: .init(charactersIn: "\"")) }
+            }.map {
+                Self(type: "revert", scope: nil, isBreaking: false, summary: $0)
+            }
+            Parse {
+                "Merge "
+                OneOf {
+                    "tag".map { _ in "tag"}
+                    "branch".map { _ in "branch" }
+                    "commit".map { _ in "commit" }
+                    "remote-tracking branch".map { _ in "remote-tracking branch" }
+                    // tags, branches, commits, remote-tracking branch(es), HEAD, *optional* 'into' and 'of' (for other remotes)
+                    // Example of octopus merge:
+                    //
+                }
+                Skip { " '" }
+                PrefixUpTo("'").map(String.init)
+                Skip { "' into '" }
+                PrefixUpTo("'").map(String.init)
+                Skip { Rest() }
+            }.map { object, branch, target in
+                return Self(type: "merge", scope: "\(object)>\(target)", isBreaking: false, summary: branch)
+            }
+        }
+    }
+
     static let parser = Parse(input: Substring.self) {
         // Commit type
         CharacterSet.alphanumerics.map(String.init)
@@ -117,8 +156,8 @@ extension ConventionalCommit.Trailer {
     public static func trailers(from message: String) throws -> (body: String, trailers: [Self]) {
         // Get the start index of each paragraph in the string. The regex matches either the start of the string, or at
         // least two newlines that aren't followed by the end of the string.
-        let paragraphs = message.matches(of: try Regex("(((\r\n|\r|\n){2,}(?!$))|^)")).map(\.range.lowerBound)
-        let startOfLastParagraph = paragraphs.last!
+        let paragraphs = message.matches(of: try Regex("(((\r\n|\r|\n){2,}(?!$))|^)"))
+        let startOfLastParagraph = paragraphs.last!.range.lowerBound
 
         let lastParagraph = message[startOfLastParagraph..<message.endIndex]
         let lines = lastParagraph.split { $0.isNewline }
@@ -140,7 +179,7 @@ extension ConventionalCommit.Trailer {
         Peek { Prefix(1, allowing: .uppercaseLetters) }
         // Trailer key
         OneOf {
-            "BREAKING CHANGE".map(String.init)
+            "BREAKING CHANGE".map({ _ in "BREAKING-CHANGE" })
             CharacterSet.trailerKeyCharacters.map(String.init)
         }
         ": "
@@ -174,8 +213,15 @@ extension ConventionalCommit {
             maxSplits: 1
         )
 
+        let header: Header
         let subject = components.removeFirst()
-        let header = try Header.parser.parse(subject)
+
+        if subject.hasPrefix("Merge") || subject.hasPrefix("Revert") {
+            header = try Header.formattedMessageParser.parse(subject)
+        } else {
+            header = try Header.parser.parse(subject)
+        }
+
         guard !components.isEmpty else {
             self.init(header: header, body: nil, trailers: [], attributes: attributes)
             return
