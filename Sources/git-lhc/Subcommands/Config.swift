@@ -46,7 +46,7 @@ struct ConfigEval: ParsableCommand {
     var outputFile: String?
 
     @Option(
-        name: [.customShort("D", allowingJoined: true), .long],
+        name: [.customShort("D", allowingJoined: true), .customLong("define")],
         help: "Define a property to a value before interpreting the file."
     )
     var defines: [LHC.Define] = []

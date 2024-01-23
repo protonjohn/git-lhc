@@ -218,7 +218,7 @@ extension Configuration.Property: ExpressibleByStringLiteral {
 }
 
 extension Configuration.Defines {
-    func includes(_ property: Key) -> Bool {
+    public func includes(_ property: Key) -> Bool {
         // Because the dictionary is a map of Property -> String?, where `nil` indicates that we've evaluated the
         // property and determined that it's not defined, we can't check `defines[property] == nil`, because that says
         // either the value hasn't been evaluated, or we've evaluated it and determined that it's not defined.
@@ -230,7 +230,7 @@ extension Configuration.Defines {
         self[property].map { _ in () } != nil
     }
 
-    var stringDict: [String: String] {
+    public var stringDict: [String: String] {
         reduce(into: [:]) { partialResult, keypair in
             let (key, value) = keypair
             guard let value else { return }
@@ -239,7 +239,7 @@ extension Configuration.Defines {
         }
     }
 
-    var jsonDict: [String: Any] {
+    public var jsonDict: [String: Any] {
         reduce(into: [String: Any]()) {
             let (key, value) = $1
 

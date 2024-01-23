@@ -7,7 +7,6 @@
 import Foundation
 import ArgumentParser
 import Version
-import Yams
 import SwiftGit2
 import LHC
 import LHCInternal
@@ -168,15 +167,9 @@ public struct LHC: AsyncParsableCommand {
             case .json:
                 let encoder = JSONEncoder()
                 result = try .init(encoder.encode(encodedValue))
-            case .yaml:
-                let encoder = YAMLEncoder()
-                result = try .init(encoder.encode(encodedValue))
             case .plist:
                 let encoder = PropertyListEncoder()
                 result = try .init(encoder.encode(encodedValue))
-            case .version:
-                let versions = encodedValue.map(\.versionString).joined(separator: ",")
-                result = .init(versions)
             case .text:
                 let description = encodedValue.compactMap { $0.describe(options: options) }.joined(separator: "\n")
                 result = .init(description)

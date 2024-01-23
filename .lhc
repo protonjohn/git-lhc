@@ -1,3 +1,6 @@
 commit_body_maxlength = 72
 branch_linting = NO
 commit_categories = ["feat", "fix", "test", "refactor", "build", "doc", "ci"]
+
+templates_dir = Integration/Templates
+checklist_dir = Integration/Checklists

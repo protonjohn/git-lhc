@@ -55,9 +55,9 @@ struct Check: AsyncParsableCommand {
             checklistDir.removeLast()
         }
 
-        let checklistsURL = URL(filePath: parent.repo).appending(path: checklistDir)
+        let checklistsURL = URL(filePath: parent.repo).appending(path: checklistDir, directoryHint: .isDirectory)
 
-        let refRoot = options?.checklistRefRootWithTrailingSlash ?? "refs/notes/checklists"
+        let refRoot = options?.checklistRefRootWithTrailingSlash ?? "refs/notes/checklists/"
         let checklistRef = refRoot.appending(checklist)
 
         // Figure out what the checklist is being run for, and warn the user if it happens to be a tag.
@@ -67,11 +67,14 @@ struct Check: AsyncParsableCommand {
         let environment = Stencil.Environment(
             repository: repo,
             options: options,
-            urls: [checklistsURL, checklistsURL.appending(path: "templates")]
+            urls: [
+                checklistsURL,
+                checklistsURL.appending(path: "templates", directoryHint: .isDirectory)
+            ]
         )
         var context: [String: Any] = [:]
         if let evaluatedConfig = try parent.evaluatedConfig?.get() {
-            context["config"] = evaluatedConfig
+            context["config"] = evaluatedConfig.jsonDict
         }
 
         let checklist = try environment.renderChecklist(named: checklist, for: tip, context: context)

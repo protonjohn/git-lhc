@@ -23,7 +23,11 @@ public protocol FileManagerish {
         attributes attr: [FileAttributeKey : Any]?
     ) -> Bool
 
+    mutating func createDirectory(atPath path: String, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey : Any]?) throws
+
     mutating func tempDir(appropriateFor: URL?) throws -> URL
+
+    func canonicalPath(for url: URL) throws -> String?
 
     func contentsOfDirectory(
         at url: URL,
@@ -38,6 +42,10 @@ extension FileManagerish {
         contents data: Data?
     ) -> Bool {
         createFile(atPath: path, contents: data, attributes: nil)
+    }
+
+    public mutating func createDirectory(atPath path: String, withIntermediateDirectories createIntermediates: Bool = false) throws {
+        try createDirectory(atPath: path, withIntermediateDirectories: createIntermediates, attributes: nil)
     }
 
     /// editFile: Spawn an editor session if detected to be running in a terminal.
@@ -128,7 +136,7 @@ extension FileManagerish {
             url = url.deletingLastPathComponent()
 
             guard url.path() != "/" &&
-                    (try? url.canonicalPath) != "/" else {
+                    (try? canonicalPath(for: url)) != "/" else {
                 return nil
             }
 
@@ -167,18 +175,14 @@ extension FileManager: FileManagerish {
             create: true
         )
     }
+
+    public func canonicalPath(for url: URL) throws -> String? {
+        try url.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath
+    }
 }
 
 extension Internal {
     public static var fileManager: FileManagerish = FileManager.default
 
     public internal(set) static var isInteractiveSession: (() -> Bool) = { isatty(STDOUT_FILENO) == 1 }
-}
-
-extension URL {
-    var canonicalPath: String? {
-        get throws {
-            try resourceValues(forKeys: [.canonicalPathKey]).canonicalPath
-        }
-    }
 }

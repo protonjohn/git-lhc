@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>{% block bundle_name %}{{ config["train"]|default:"Bundle" }}{% endblock %}</string>
+	<key>CFBundleDisplayName</key>
+	<string>{% block display_name %}{{ config["train"]|default:"Bundle" }}{% endblock %}</string>
+	<key>CFBundleIdentifier</key>
+	<string>{% block bundle_id %}{{ config["app_identifier"]|default:"org.example.app" }}{% endblock %}</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>{% block bundle_region %}en{% endblock %}</string>
+	<key>CFBundlePackageType</key>
+	<string>DOCS</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleShortVersionString</key>
+	<string>{% block short_version %}{{ short_version|default:"0.0.1" }}{% endblock %}</string>
+	<key>CFBundleVersion</key>
+	<string>{% block version %}{{ version|default:"0.0.1" }}{% endblock %}</string>
+</dict>
+</plist>

@@ -40,28 +40,40 @@ public class TemplateLoader: Loader, CustomStringConvertible {
         )
 
         for subsubURL in directoryContents {
-            let subsubPath = subsubURL.path()
+            let absoluteURL = subsubURL.absoluteURL
             if (try? subsubURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
-                try recursivelyLoadContents(url, subpath: subsubPath, into: &contents)
-            } else if subsubURL.deletingPathExtension().pathExtension == "template",
-                      let templateContents = Internal.fileManager.contents(atPath: subsubPath) {
+                try recursivelyLoadContents(fullURL, subpath: subsubURL.path(), into: &contents)
+            } else if subsubURL.pathExtensions.contains("template"),
+                      let templateContents = Internal.fileManager.contents(atPath: absoluteURL.path()) {
                 let string = String(data: templateContents, encoding: .utf8)
-                contents[subsubPath] = string
+                contents[fullURL.appending(component: subsubURL.path()).path()] = string
             } else {
-                contents[subsubPath] = nil
+                // Not a template or a directory, but still a file.
+                contents[fullURL.appending(component: subsubURL.path()).path()] = .some(nil)
             }
         }
     }
 
+    /// Loads one or more templates with the given template file or directory name.
+    ///
+    /// Returns a dictionary of subpaths in the repository. Each subpath key corresponds either to a template file, or a
+    /// template directory's contents.
+    ///
+    /// In the former case, the associated value is a template object. If the template filename's last extension is
+    /// "md", then the document will first be parsed for a YAML header, which will be parsed and removed from the
+    /// original document before it is used to initialize the Template object. The parsed headers will be included
+    /// as part of the return value.
+    ///
+    /// If the subpath key corresponds to a file that is not a template, but was present in a template directory, the
+    /// associated value is nil.
     public func loadTemplates(
         nameOrRoot: String,
         environment: Environment
     ) throws -> [String: (Template, headers: [String: Any]?)?] {
         let fileURL = URL(filePath: nameOrRoot)
-        let withoutExtension = fileURL.deletingPathExtension().path()
 
         var url: URL?
-        if withoutExtension.hasSuffix(".base") {
+        if fileURL.pathExtensions.contains("base") {
             // This implementation is a bit weird because we can't rely on Bundle.module (it only gets generated if we're
             // built with SPM) and we have to use the real, non-stubbed FileManager so we can get the resource's contents
             // without conflicting with any test runs.
@@ -71,7 +83,7 @@ public class TemplateLoader: Loader, CustomStringConvertible {
             for path in paths {
                 guard let resourceBundle = Bundle(path: path),
                       let resourcePath = resourceBundle.path(
-                          forResource: withoutExtension,
+                          forResource: fileURL.deletingPathExtension().path(),
                           ofType: fileURL.pathExtension
                       ) else {
                     continue
@@ -84,9 +96,11 @@ public class TemplateLoader: Loader, CustomStringConvertible {
 
         var isDirectory: Bool? = false
         if url == nil {
+            // This absoluteURL nonsense is useful for calculating the relative paths in the content dictionaries
+            // further down, modify or remove them at your own peril.
             for templateDirectoryURL in self.urls {
-                let templateURL = templateDirectoryURL.appending(path: nameOrRoot)
-                if Internal.fileManager.fileExists(atPath: templateURL.path(), isDirectory: &isDirectory) {
+                let templateURL = URL(filePath: nameOrRoot, relativeTo: templateDirectoryURL)
+                if Internal.fileManager.fileExists(atPath: templateURL.absoluteURL.path(), isDirectory: &isDirectory) {
                     url = templateURL
                     break
                 }
@@ -101,7 +115,7 @@ public class TemplateLoader: Loader, CustomStringConvertible {
         if isDirectory == true {
             try recursivelyLoadContents(url, subpath: nil, into: &templateContents)
         } else {
-            guard let data = Internal.fileManager.contents(atPath: url.path()),
+            guard let data = Internal.fileManager.contents(atPath: url.absoluteURL.path()),
                   let contents = String(data: data, encoding: .utf8) else {
                 throw TemplateDoesNotExist(templateNames: [nameOrRoot], loader: self)
             }
@@ -110,8 +124,8 @@ public class TemplateLoader: Loader, CustomStringConvertible {
         }
 
         return templateContents.reduce(into: [:]) {
-            let (key, contents) = $1
-            guard let contents else {
+            var (key, contents) = $1
+            guard let url = URL(string: key), let contents else {
                 // Still tell the caller where non-template files are, so it knows to copy them over.
                 $0[key] = nil
                 return
@@ -122,7 +136,8 @@ public class TemplateLoader: Loader, CustomStringConvertible {
             let headers: CodingDictionary?
 
             // Find the boundaries of the YAML header, if one exists
-            if contents.starts(with: delimiter),
+            if url.pathExtension == "md",
+               contents.starts(with: delimiter),
                let match = contents[delimiter.endIndex...].range(of: delimiter) {
                 let decoder = YAMLDecoder()
                 body = String(contents[match.upperBound...])
@@ -136,8 +151,12 @@ public class TemplateLoader: Loader, CustomStringConvertible {
             let template = environment.templateClass.init(
                 templateString: body,
                 environment: environment,
-                name: String(key.split(separator: "/").last!)
+                name: url.pathComponents.last!
             )
+
+            if let templateExtension = key.ranges(of: ".template").last {
+                key.removeSubrange(templateExtension)
+            }
 
             $0[key] = (template, headers?.rawValue)
         }
@@ -222,8 +241,8 @@ public class TemplateExtension: Stencil.Extension {
 
         guard arguments.count == 1, let key = arguments.first as? String else {
             throw TemplateSyntaxError("""
-            'attrs' allows one argument, which must be a string.
-            """)
+                'attrs' allows one argument, which must be a string.
+                """)
         }
 
         let trailers = try [Commit.Trailer](message: note.message)
@@ -369,7 +388,7 @@ public class TemplateExtension: Stencil.Extension {
             )
         }
 
-        guard let value = value as? AnyCollection<Any> else {
+        guard let value = value as? any Collection else {
             throw TemplateSyntaxError("""
                 'random' takes one value, which must be a collection.
                 """
@@ -377,6 +396,30 @@ public class TemplateExtension: Stencil.Extension {
         }
 
         return value.randomElement()
+    }
+
+    func prefix(_ value: Any?, arguments: [Any]) throws -> Any? {
+        guard arguments.count == 0 || arguments.first is Int else {
+            throw TemplateSyntaxError("""
+                'drop_first' allows one argument, which must be an integer.
+                """)
+        }
+
+        switch value {
+        case let value as String:
+            let result = value.prefix(arguments.first as? Int ?? 1)
+            return String(result)
+        case let value as [Any]:
+            let result = value.prefix(arguments.first as? Int ?? 1)
+            return Array(result)
+        case let value as any Collection:
+            return value.prefix(arguments.first as? Int ?? 1) as any Collection
+        default:
+            throw TemplateSyntaxError("""
+                'drop_first' takes one value, which must be a collection.
+                """
+            )
+        }
     }
 
     public let repository: Repositoryish
@@ -399,6 +442,7 @@ public class TemplateExtension: Stencil.Extension {
         registerFilter("commits", filter: commits)
         registerFilter("alias", filter: alias)
         registerFilter("random", filter: random)
+        registerFilter("prefix", filter: self.prefix)
     }
 }
 
@@ -434,6 +478,12 @@ extension Stencil.Environment {
        )
     }
 
+    /// Render a single template, or multiple templates if the name corresponds to a directory in one of the specified
+    /// template directories.
+    ///
+    /// Nil entries represent files that were not templates, but should be copied over as resources from the original
+    /// template directory.
+    ///
     /// - Note: assumes that the environment is using a `TemplateLoader`.
     public func renderTemplates(
         nameOrRoot: String,

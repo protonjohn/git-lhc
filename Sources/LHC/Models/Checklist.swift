@@ -570,8 +570,11 @@ public extension Stencil.Environment {
         }
 
         let commits: [Commitish]
+        var lastOid: ObjectID?
         if let (lastObject, lastNote) = try repository.lastNotedObject(from: target, notesRef: checklistRef) {
-            context["last"] = lastNote
+            lastOid = lastObject.oid
+            context["last_note"] = lastNote
+            context["last_target"] = lastOid?.description
 
             var sinceOid = lastObject.oid
             if let lastTag = lastObject as? Tagish {
@@ -584,6 +587,15 @@ public extension Stencil.Environment {
             commits = try repository.commits(from: target, since: nil)
         }
         context["commits"] = commits
+
+        var oids: Set<ObjectID> = [target]
+        oids.formUnion(commits.map(\.oid))
+        if let lastOid {
+            oids.insert(lastOid)
+        }
+
+        let minimumLength = try? ObjectID.minimumLength(toLosslesslyRepresent: oids)
+        context["oid_string_length"] = minimumLength ?? ObjectID.stringLength
 
         let changes: [ObjectID: ConventionalCommit] = commits.reduce(into: [:]) {
             var attributes: [ConventionalCommit.Trailer]?

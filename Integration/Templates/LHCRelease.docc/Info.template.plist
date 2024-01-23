@@ -1,0 +1,7 @@
+{% extends "docc.info.base.plist" %}
+
+{% block bundle_name %}LHCRelease{% endblock %}
+{% block display_name %}LHC Release {{ release.versionString }}{% endblock %}
+{% block bundle_id %}ch.proton.lhc.release_description{% endblock %}
+{% block short_version %}{{ release.versionString }}{% endblock %}
+{% block version %}{{ release.versionString }}{% endblock %}

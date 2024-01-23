@@ -117,6 +117,24 @@ struct MockFileManager: FileManagerish {
         }
     }
 
+    mutating func createDirectory(atPath path: String, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey : Any]?) throws {
+
+        guard createIntermediates == false else {
+            fatalError("Not yet implemented")
+        }
+
+        guard let url = URL(string: path) else { throw POSIXError(.EINVAL) }
+
+        guard !fileExists(atPath: path) else {
+            throw POSIXError(.EEXIST)
+        }
+
+        try setNode(
+            .directory(name: url.lastPathComponent, contents: []),
+            atPath: url.deletingLastPathComponent().path()
+        )
+    }
+
     mutating func removeItem(atPath path: String) throws {
         try setNode(nil, atPath: path)
     }
@@ -124,8 +142,15 @@ struct MockFileManager: FileManagerish {
     mutating func tempDir(appropriateFor: URL?) throws -> URL {
         let name = "\(UUID())"
         let url = URL(filePath: "/tmp/\(name)")
+
+        try createDirectory(atPath: url.path())
+
         try setNode(.directory(name: name, contents: []), atPath: "/tmp")
         return url
+    }
+
+    func canonicalPath(for url: URL) throws -> String? {
+        return url.absoluteURL.path()
     }
 
     func contents(atPath path: String) -> Data? {

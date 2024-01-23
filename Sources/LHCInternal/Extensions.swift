@@ -9,7 +9,7 @@ import Foundation
 
 extension ObjectID {
     /* OIDs are represented as hexadecimal strings. */
-    static let stringLength = MemoryLayout<RawValue>.size * 2
+    public static let stringLength = MemoryLayout<RawValue>.size * 2
 }
 
 extension Collection {
@@ -60,6 +60,18 @@ extension String {
     public var couldBeJSON: Bool {
         return first == "[" && last == "]" ||
             first == "{" && last == "}"
+    }
+}
+
+extension URL {
+    public var pathExtensions: [String] {
+        var copy = self
+        var result: [String] = []
+        while case let pathExtension = copy.pathExtension, pathExtension != "" {
+            result.insert(pathExtension, at: 0)
+            copy.deletePathExtension()
+        }
+        return result
     }
 }
 

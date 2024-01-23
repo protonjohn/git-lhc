@@ -68,6 +68,8 @@ public struct Release {
 
     /// A software change, adhering to conventional commit syntax.
     public struct Change: Codable {
+        /// The scope of the change.
+        public let scope: String?
         /// The summary of the change.
         public let summary: String
         /// The body of the commit.
@@ -128,9 +130,18 @@ extension Version {
 public enum ReleaseFormat: String, CaseIterable {
     case text
     case json
-    case yaml
     case plist
-    case version
+
+    public var fileExtension: String {
+        switch self {
+        case .text:
+            return "txt"
+        case .json:
+            return "json"
+        case .plist:
+            return "plist"
+        }
+    }
 }
 
 // Needed in order to include the release channel in the outputted JSON data
@@ -237,6 +248,7 @@ extension Release {
 
             let oid = correspondingHashes[index]
             result[header.type]?.append(Change(
+                scope: header.scope,
                 summary: header.summary,
                 body: cc.body,
                 commitHash: oid.description,
@@ -367,6 +379,7 @@ extension Release.Change: CustomStringConvertible {
 extension Release.Change {
     public func redacting(commitHash: Bool, projectIds: Bool, checklists: Bool) -> Self {
         Self(
+            scope: scope,
             summary: summary,
             body: body,
             commitHash: commitHash ? "" : self.commitHash,
@@ -399,9 +412,6 @@ extension Repositoryish {
 
             return (object: object, version: version)
         }.sorted { $0.version < $1.version }
-        for item in result {
-            print(item)
-        }
         return result
     }
 
@@ -723,51 +733,76 @@ extension Repositoryish {
     }
 }
 
-extension Stencil.Environment {
-    func renderRelease(
-        templateName: String,
+extension Repositoryish {
+    public func releaseChecklistContents(
         release: Release,
-        includeChecklists: Bool,
-        repo: Repositoryish,
-        options: Configuration.Options?
-    ) throws -> [String: String?] {
-        var context: [String: Any] = [:]
-
-        context["release"] = release
-
-        let subpath = options?.checklistOutputDir ?? "checklists/"
+        options: Configuration.Options?,
+        oidFileNameLength: Int = ObjectID.stringLength
+    ) throws -> [String: Data] {
         let refroot = options?.checklistRefRootWithTrailingSlash ?? "refs/notes/checklists/"
 
-        var checklistContents: [String: String] = [:]
-        if includeChecklists {
-            var oids: [ObjectID: [String]] = [:]
-            if let hash = release.objectHash,
-               let oid = ObjectID(string: hash),
-               let checklists = release.checklists {
-                oids[oid] = checklists
-            }
+        // Place each checklist in a list corresponding to their target OID.
+        var oids: [ObjectID: [String]] = [:]
 
-            for (_, changes) in release.changes {
-                for change in changes {
-                    guard let checklists = change.checklists,
-                          let oid = ObjectID(string: change.commitHash) else { continue }
-                    oids[oid] = checklists
-                }
-            }
+        var releaseOid: ObjectID?
 
-            checklistContents = oids.reduce(into: [:], {
-                for name in $1.value {
-                    guard let note = try? repo.note(for: $1.key, notesRef: refroot + name) else { continue }
-                    $0[subpath + $0.description + "/\(name)"] = note.message
-                }
-            })
+        if let hash = release.objectHash,
+           let oid = ObjectID(string: hash),
+           let object = try? object(oid),
+           type(of: object).type == .tag,
+           let checklists = release.checklists {
+            releaseOid = oid
+            oids[oid] = checklists
         }
 
-        let templateContents = try renderTemplates(
-            nameOrRoot: templateName,
-            additionalContext: context
-        )
+        for (_, changes) in release.changes {
+            for change in changes {
+                guard let checklists = change.checklists,
+                      let oid = ObjectID(string: change.commitHash) else { continue }
+                oids[oid] = checklists
+            }
+        }
 
-        return templateContents.merging(checklistContents, uniquingKeysWith: { lhs, rhs in lhs })
+        return oids.reduce(into: [:], {
+            for name in $1.value {
+                guard let note = try? note(for: $1.key, notesRef: refroot + name),
+                      let noteContents = note.message.data(using: .utf8) else { continue }
+
+                let fileName: String
+                if $1.key == releaseOid {
+                    fileName = "checklist-\(name)-\(release.versionString).md"
+                } else {
+                    let oidString = $1.key.description
+                    let shortenedOid = String(oidString.prefix(oidFileNameLength))
+                    fileName = "checklist-\(name)-\(shortenedOid).md"
+                }
+
+                $0[fileName] = noteContents
+            }
+        })
+    }
+}
+
+extension Stencil.Environment {
+    /// Returns a map of path to new file/directory contents.
+    public func renderRelease(
+        templateName: String,
+        release: Release,
+        additionalContext: [String: Any]
+    ) throws -> [String: Data] {
+        var context: [String: Any] = additionalContext
+        context["release"] = release
+
+        return try renderTemplates(
+            nameOrRoot: templateName, // where is template root?
+            additionalContext: context
+        ).reduce(into: [:]) {
+            guard let contents = $1.value, let data = contents.data(using: .utf8) else {
+                let path = "\(options!.templatesDir!)/\($1.key)"
+                $0[$1.key] = Internal.fileManager.contents(atPath: path)
+                return
+            }
+            $0[$1.key] = data
+        }
     }
 }

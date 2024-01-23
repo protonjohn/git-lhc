@@ -95,7 +95,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/protonjohn/SwiftGit2",
       "state" : {
-        "revision" : "0a8a4fae6debbd1d504e7a1ebe961b90f1d33a1a"
+        "revision" : "a7c723c68cd8557e8ee71ff4944a8940249656ab"
       }
     },
     {

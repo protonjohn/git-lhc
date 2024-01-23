@@ -66,9 +66,6 @@ extension Configuration {
         /// integration, among other things.
         public let projectIdTrailerName: String?
 
-        /// The name of the field that is used by Jira in your project to store release notes. Should start with `customfield_*`.
-        public let jiraReleaseNotesField: String?
-
         /// Optionally set the maximum length to allow in a commit subject.
         public let subjectMaxLineLength: Int?
 
@@ -120,9 +117,6 @@ extension Configuration {
         /// checklist files.
         public let checklistDir: String?
 
-        /// This specifies the output path of checklists in a release template directory.
-        public let checklistOutputDir: String?
-
         /// This option is the directory relative to the repository root which contains release templates, represented
         /// either as files or directories. In the latter case, files fed through the templating engine should end in
         /// `.template.{fileExtension}`.
@@ -136,7 +130,6 @@ extension Configuration {
             case trains = "trains"
             case projectIdPrefix = "project_id_prefix"
             case projectIdTrailerName = "project_id_trailer"
-            case jiraReleaseNotesField = "jira_release_notes_field"
             case subjectMaxLineLength = "commit_subject_maxlength"
             case bodyMaxLineLength = "commit_body_maxlength"
             case projectIdRegexes = "project_id_regexes"
@@ -148,7 +141,6 @@ extension Configuration {
             case attrsRef = "attrs_ref"
             case checklistRefRoot = "checklist_ref_root"
             case checklistDir = "checklist_dir"
-            case checklistOutputDir = "checklist_output_dir"
             case templatesDir = "templates_dir"
         }
 

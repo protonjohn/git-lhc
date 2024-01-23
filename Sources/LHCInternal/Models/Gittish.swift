@@ -354,6 +354,9 @@ public final class AliasMap: Mailmap {
     }
 
     public func alias(name: String, email: String, platform: String) throws -> String {
+        // First, let's normalize the input name.
+        let (name, email) = try resolve(name: name, email: email)
+
         guard let line = contents.split(separator: "\n").first(where: {
             $0.hasPrefix("\(name) <\(email)>") &&
             $0.hasSuffix("@\(platform)>")
