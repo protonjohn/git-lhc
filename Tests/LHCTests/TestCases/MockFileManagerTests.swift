@@ -45,7 +45,7 @@ class MockFileManagerTests: XCTestCase {
 
     func testProperties() {
         XCTAssertEqual(fileManager.currentDirectoryPath, "/Users/test/repo")
-        XCTAssertEqual(fileManager.homeDirectoryForCurrentUser.path(), "/Users/test")
+        XCTAssertEqual(fileManager.homeDirectoryForCurrentUser.path(percentEncoded: false), "/Users/test")
     }
 
     func testContents() {

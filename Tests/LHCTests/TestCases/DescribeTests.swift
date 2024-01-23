@@ -25,7 +25,7 @@ class DescribeReleaseTests: LHCTestCase {
     /// Tests the case where no version tags exist in the repository yet.
     func testBootstrapping() throws {
         try setBranch(.branchOffOfEarlyDevelop)
-        try invoke(["--format", "json", "--dry-run"])
+        try invoke(["--format", "json", "--show", "HEAD"])
 
         XCTAssertEqual(errorOutput, "")
 
@@ -71,7 +71,7 @@ class DescribeReleaseTests: LHCTestCase {
     }
 
     func testShowingNewReleaseWithBreakingChange() throws {
-        try invoke(["--format", "json", "--dry-run"])
+        try invoke(["--format", "json", "--show", "HEAD"])
 
         XCTAssertEqual(errorOutput, "")
 
@@ -113,42 +113,35 @@ class DescribeReleaseTests: LHCTestCase {
 
     /// Tests printing the entire changelog.
     func testMultipleVersions() throws {
-        try invoke(["--format", "json", "--show", "all", "--dry-run"])
+        try invoke(["--format", "json", "--show", "all"])
 
         XCTAssertEqual(errorOutput, "")
 
         let data = testOutput.data(using: .utf8) ?? Data()
         let releases = try decoder.decode([Release].self, from: data)
-        XCTAssertEqual(releases.count, 4)
+        XCTAssertEqual(releases.count, 3)
 
         do {
             let release = releases.first
-            XCTAssertEqual(release?.version, Version(1, 0, 0))
-            XCTAssertEqual(release?.tagName, nil)
-        }
-
-        do {
-            let release = releases.second
             XCTAssertEqual(release?.version, Version(0, 1, 0))
             XCTAssertEqual(release?.tagName, "0.1.0")
         }
 
         do {
-            guard releases.count == 4 else {
+            guard let release = releases.second else {
                 XCTFail("Incorrect release count")
                 return
             }
-            let release = releases[2]
             XCTAssertEqual(release.version, Version(0, 0, 2))
             XCTAssertEqual(release.tagName, "0.0.2")
         }
 
         do {
-            guard releases.count == 4 else {
+            guard releases.count == 3 else {
                 XCTFail("Incorrect release count")
                 return
             }
-            let release = releases[3]
+            let release = releases[2]
             XCTAssertEqual(release.version, Version(0, 0, 1))
             XCTAssertEqual(release.tagName, "0.0.1")
         }

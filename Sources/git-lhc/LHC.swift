@@ -121,7 +121,6 @@ public struct LHC: AsyncParsableCommand {
 
         mutating func allTrainOptions() throws -> [String?: Configuration.Options] {
             guard let options = try? options?.get() else { return [:] }
-            guard let train = options.train else { return [nil: options] }
             guard var trains = options.trains else { return [train: options] }
 
             var result: [String: Configuration.Options] = [:]
@@ -171,7 +170,12 @@ public struct LHC: AsyncParsableCommand {
                 let encoder = PropertyListEncoder()
                 result = try .init(encoder.encode(encodedValue))
             case .text:
-                let description = encodedValue.compactMap { $0.describe(options: options) }.joined(separator: "\n")
+                let description = encodedValue
+                    .compactMap { $0.describe(options: options) }.joined(separator: "\n") + "\n"
+                result = .init(description)
+            case .version:
+                let description = encodedValue
+                    .compactMap { $0.versionString }.joined(separator: "\n") + "\n"
                 result = .init(description)
             }
 

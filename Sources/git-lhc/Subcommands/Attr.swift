@@ -54,9 +54,14 @@ struct Attr: ParsableCommand {
                 throw ExitCode(1)
             }
 
+            guard verbose else {
+                Internal.print(value)
+                return
+            }
+
             Internal.print("\(key): \(value)")
-            if verbose,
-               let refName = try? attrsRef ?? repo.defaultNotesRefName,
+
+            if let refName = try? attrsRef ?? repo.defaultNotesRefName,
                let attrLog = try? repo.attributeLog(key: key, target: target, refName: refName),
                let set = attrLog.first(where: { $0.action == .add }) {
                 Internal.print(set.commit.noteDescription)

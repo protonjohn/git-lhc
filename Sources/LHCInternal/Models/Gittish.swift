@@ -314,7 +314,7 @@ extension Repositoryish {
             let mailmapPath = URL(filePath: repositoryRoot)
                 .appending(path: fileName)
                 .absoluteURL
-                .path()
+                .path(percentEncoded: false)
 
             guard let data = Internal.fileManager.contents(atPath: mailmapPath),
                   let contents = String(data: data, encoding: .utf8) else {
@@ -415,7 +415,7 @@ enum RepositoryError: Error, CustomStringConvertible {
         case let .referenceNotFoundStartingFromLeaf(reference, leaf):
             return "Could not reach commit '\(reference)' from commit '\(leaf).'"
         case let .invalidReference(reference):
-            return "Invalid reference name '\(reference).' Please specify a tag, branch, or commit hash."
+            return "Invalid reference name '\(reference)'. Please specify a tag, branch, or commit hash."
         }
     }
 }

@@ -2,7 +2,7 @@
 
 .create_changelog:
   script:
-    - mint run lhc changelog --dry-run --show latest --format json --output "${LHC_CHANGELOG_PATH:-release.json}"
+    - mint run lhc changelog --show HEAD --format json --output "${LHC_CHANGELOG_PATH:-release.json}"
 
 .create_release:
   release:

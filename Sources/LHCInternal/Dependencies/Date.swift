@@ -12,14 +12,14 @@ extension Internal {
 
     public static func timestamp() -> String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyMMddHHmm"
+        formatter.dateFormat = String.timestampDateFormat
         return formatter.string(from: Self.date())
     }
 
     public static func gitDateString() -> String {
         let formatter = DateFormatter()
         // Sun Nov 12 16:20:42 2023 +0100
-        formatter.dateFormat = "EEE MMM d HH:mm:ss YYYY Z"
+        formatter.dateFormat = String.gitDateFormat
         return formatter.string(from: Self.date())
     }
 }
