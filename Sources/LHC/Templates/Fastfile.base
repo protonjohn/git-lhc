@@ -1,0 +1,644 @@
+# vi: ft=ruby
+#{#
+# Template file for a Fastfile, generated from a user's LHC config.
+#
+# To avoid headaches, "config" should always be used for the LHC configuration file, and "$options" and "arguments"
+# should be used for global variables and arguments, respectively.
+#}#{% if true %}
+# Warning: This Fastfile is auto-generated. Do not edit it, it will be overwritten.
+#{% endif %}
+
+require 'pp' # for printing options
+
+## Important top-level global variables
+
+# Fastlane puts us in $repo_path/fastlane, so we need a path to the repository itself.
+$repo_path = File.expand_path("#{Dir.pwd}/..")
+
+{% block header %}
+$app_identifier = "{{ config["app_identifier"] }}"
+{% if config["train"] %}
+$train = "{{ config["train"] }}"
+{% else %}
+$train = nil
+{% endif %}
+
+unless ($timestamp = ENV["TIMESTAMP"])
+    $timestamp = `date +"%y%m%d%H%M"`.strip
+end
+
+## Basic setup/configuration functions
+
+def die(string)
+    puts string
+    UI.user_error!(string)
+end
+
+def get_or_die(options, sym)
+    unless (value = options[sym])
+        die "Couldn't get #{sym.to_s} from options."
+    end
+
+    return value
+end
+
+def get_secret(env_var)
+    {% if config["train"] %}
+    return ENV.fetch(env_var + "_{{ config["train"]|uppercase|replace:"-","_" }}", ENV[env_var])
+    {% else %}
+    return ENV[env_var]
+    {% endif %}
+end
+
+def defaults_write(namespace, key, value)
+    puts "Writing default #{key} = #{value} for #{namespace}..."
+    result = `defaults write #{namespace} #{key} #{value}`
+    unless $?.success?
+        die "Could not set default: #{result}"
+    end
+end
+
+def filter_args(hash, context, argKeys)
+    result = {}
+    for key in argKeys
+        next unless (value = hash[key])
+        result[key] = value
+    end
+
+    puts "Adding arguments for #{context}:"
+    pp result
+    return result
+end
+
+def rel_to_repo(path)
+    unless path.start_with?("/")
+        path = File.expand_path("#{$repo_path}/#{path}")
+    end
+    return path
+end
+
+## Global configuration variables, based on LHC configuration values
+
+# Basic global options.
+$options = {
+    {% block options %}
+    :train => $train,
+    :team_id => "{{ config["team_id"] }}",
+    :channel => "{{ config["channel"] }}",
+    :platform => "{{ config["platform"] }}",
+    :human_platform => "{{ config["human_platform"] }}",
+    :xcodeproj => "{{ config["xcodeproj"] }}",
+    :output_name => "{{ config["product_name"] }}",
+    :configuration => "{{ config["configuration"]|default:"Debug" }}",
+    :output_directory => "{{ config["output_directory"]|default:"output" }}",
+    :keychain_name => "{{ config["match_keychain_name"]|default:"fastlane" }}",
+    {% endblock %}
+}
+
+# Secrets (excluded from build logs).
+$secrets = {
+    {% block secrets %}
+    :match_git_url => get_secret("MATCH_GIT_URL"),
+    :match_password => get_secret("MATCH_PASSWORD"),
+    :match_keychain_password => get_secret("MATCH_KEYCHAIN_PASSWORD"),
+    {% if config["CI"] %}
+    :appstore_api_key => get_secret("APPSTORE_API_KEY"),
+    :appstore_api_key_id => get_secret("APPSTORE_API_KEY_ID"),
+    :appstore_api_key_issuer => get_secret("APPSTORE_API_KEY_ISSUER"),
+    {% endif %}
+    {% if config["train"] == "mac" %}
+    :appcast_ed_key => get_secret("APPCAST_ED_KEY"),
+    {% endif %}
+    {% endblock %}
+}
+
+## Global state variables
+
+{% block state_variables %}
+$created_keychain = false
+$created_simulator = false
+$unzipped_build_products = false
+{% endblock %}
+
+## Helper functions
+
+def initialize(arguments)
+    {% block initialize %}
+    $options = $options.merge(arguments) # allow overrides from the command line
+    $options[:use_automatic_signing] = (not $secrets[:match_keychain_password] and not arguments[:use_automatic_signing])
+    {% endblock %}
+
+    # A string-indexed hash of bundle identifiers, mapping to their associated build targets.
+    $options[:targets] = {
+        {% block targets %}
+        {% endblock %}
+    }
+
+    $options[:test_targets] = {
+        {% block test_targets %}
+        {% endblock %}
+    }
+
+    puts "Starting with options:"
+    pp $options
+end
+
+def delete_keychain_if_needed()
+    return unless $created_keychain
+    delete_keychain(name: $options.fetch(:keychain_name, "fastlane"))
+end
+
+private_lane :create_simulator do |arguments|
+    device_type = get_or_die($options, :simulator_device_type) # e.g., iPhone-12
+    destination_name = get_or_die($options, :destination_name) # e.g., "My Awesome Simulator"
+
+    unless (runtime_filter = $options[:simulator_runtime_filter] || $options[:human_platform])
+        die "Unable to filter simulator runtimes, please define one of simulator_runtime_filter or human_platform"
+    end
+
+    puts "Finding the first runtime containing the string #{runtime_filter}..."
+    runtime = `xcrun simctl list runtimes | grep #{runtime_filter} | head -n 1 | awk '{print $NF}' 2> /dev/stdout`
+    die "Unable to get simulator runtime: #{runtime}" unless $?.success?
+
+    puts "Creating simulator #{destination_name} with device #{device_type} and runtime #{runtime}..."
+    simulator_uuid = `xcrun simctl create "#{destination_name}" "com.apple.CoreSimulator.SimDeviceType.#{device_type}" #{runtime} 2> /dev/stdout`
+    die "Unable to create simulator: #{result}" unless $?.success?
+
+    # Fix UI tests failing on secure field entry
+    defaults_write("com.apple.iphonesimulator", "ConnectHardwareKeyboard", "0")
+
+    puts "Simulator created. UUID: #{simulator_uuid}"
+    $created_simulator = true
+end
+
+def stop_simulator_if_needed()
+    return unless $created_simulator
+    destination_name = get_or_die($options, :destination_name)
+
+    puts "Stopping simulator #{destination_name}..."
+    result = `xcrun simctl delete "#{destination_name}"`
+    die "Unable to stop simulator: #{result}" unless $?.success?
+end
+
+def sign_in_to_app_store_connect()
+    {% if config["CI"] %}
+    api_key = get_or_die($secrets, :appstore_api_key)
+    api_key_id = get_or_die($secrets, :appstore_api_key_id)
+    api_key_issuer = get_or_die($secrets, :appstore_api_key_issuer)
+
+    puts "Fetching app store credentials..."
+    app_store_connect_api_key(
+        {% block app_store_connect_api_key_args %}
+        key_id: api_key_id,
+        issuer_id: api_key_issuer,
+        key_content: api_key,
+        set_spaceship_token: true,
+        duration: 1200,
+        in_house: false,
+        {% endblock %}
+    )
+    {% endif %}
+end
+
+private_lane :fetch_codesigning_info do |arguments|
+    keychain_password = get_or_die($secrets, :match_keychain_password)
+    begin
+        puts "Creating keychain #{$options[:keychain_name]}..."
+        create_keychain(
+            {% block create_keychain_args %}
+            name: $options[:keychain_name],
+            password: keychain_password,
+            unlock: true,
+            default_keychain: true,
+            add_to_search_list: true,
+            lock_when_sleeps: true,
+            lock_after_timeout: true,
+            timeout: $options.fetch(:keychain_timeout, 7200), # 2 hours
+            {% endblock %}
+        )
+        $created_keychain = true
+    rescue => error
+        die "Unable to create keychain: #{error}"    
+    end
+
+    # Make sure that the proper env var is set before running the match command.
+    if password = $secrets[:match_password] and not ENV["MATCH_PASSWORD"]
+        ENV["MATCH_PASSWORD"] = password
+    end
+
+    unless (type = $options[:match_type])
+        export_method = get_or_die($options, :export_method)
+
+        # map from export method to signing type. annoying, but necessary.
+        # export method: app-store, validation, ad-hoc, package, enterprise, development, developer-id and mac-application
+        # type: appstore, adhoc, development, enterprise, developer_id, mac_installer_distribution, developer_id_installer
+        types = {
+            "ad-hoc" => "adhoc",
+            "app-store" => "appstore",
+            "development" => "development",
+            "developer-id" => "developer_id",
+        }
+
+        type = types.fetch(export_method)
+    end
+
+    # Download current certs and profiles from git, and/or create them on app store connect.
+    puts "Matching signing settings with targets..."
+    match(
+        {% block match_args %}
+        app_identifier: $options[:targets].keys,
+        git_url: $secrets[:git_url],
+        keychain_password: keychain_password,
+        keychain_name: $options[:keychain_name],
+        type: type,
+        {% endblock %}
+    )
+end
+
+private_lane :setup_codesigning do |arguments|
+    sign_in_to_app_store_connect()
+
+    if $options[:use_automatic_signing]
+        puts "Modifying code signing settings..."
+        update_code_signing_settings(
+            {% block code_signing_args %}
+            bundle_identifier: $app_identifier,
+            use_automatic_signing: true,
+            team_id: $options[:team_id],
+            targets: $options[:targets].values,
+            path: $options[:xcodeproj],
+            build_configurations: $options[:configuration],
+            profile_name: "",
+            {% endblock %}
+        )
+        next
+    end
+
+    fetch_codesigning_info()
+    profiles = get_or_die(lane_context, SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING)
+    if not $options[:export_method] and 
+            (export_method = lane_context[SharedValues::SIGH_PROFILE_TYPE])
+        $options[:export_method] = export_method
+    end
+
+    puts "Modifying code signing settings..."
+
+    if $options[:build_for_testing] and $options[:test_targets]
+        $options[:test_targets].each do |bundle_id, target|
+            update_code_signing_settings(
+                {% block code_signing_args %}
+                targets: [target],
+                path: $options[:xcodeproj],
+                team_id: $options[:team_id],
+                use_automatic_signing: true,
+                build_configurations: $options[:configuration],
+                {% endblock %}
+            )
+        end
+    end
+
+    profiles.each do |bundle_id, profile_name|
+        target = get_or_die($options[:targets], bundle_id)
+
+        update_code_signing_settings(
+            {% block code_signing_args %}
+            targets: [target],
+            profile_name: profile_name,
+            path: $options[:xcodeproj],
+            team_id: $options[:team_id],
+            use_automatic_signing: false,
+            build_configurations: $options[:configuration],
+            {% endblock %}
+        )
+    end
+end
+
+private_lane :promote_testflight_release do |arguments|
+    testflight_groups = get_or_die($options, :testflight_groups)
+
+    require 'spaceship'
+
+    app = Spaceship::ConnectAPI::App.find($app_identifier)
+    build = app.get_builds(filter: { :version => $options[:build_number] }, limit: 1).first
+
+    groups = $options[:testflight_groups].map { |name|
+        app.get_beta_groups(filter: { :name => name }, limit: 1).first
+    }
+
+    # Update the changelog with the new value
+    if (changelog = $options[:changelog])
+        localization = build.get_beta_build_localizations(limit: 1).first
+        Spaceship::ConnectAPI.patch_beta_build_localizations(localization_id: localization.id, attributes: {
+            :whatsNew => changelog
+        })
+    end
+
+    build.add_beta_groups(beta_groups: groups)
+end
+
+def unzip_build_products()
+    build_products_zip = rel_to_repo(get_or_die($options, :build_products_zip))
+    derived_data_path = $repo_path + "/.DerivedData"
+    build_products_dir =  derived_data_path + "/Build/Products"
+    FileUtils.mkdir_p build_products_dir
+
+    puts "Unzipping build products #{build_products_zip} into #{build_products_dir}..."
+    `unzip -o #{build_products_zip} -d #{build_products_dir}`
+    die "Couldn't unzip build products at #{build_products_zip} into #{build_products_dir}." unless $?.success?
+
+    $unzipped_build_products = true
+
+    unless $options[:derived_data_path]
+        $options[:derived_data_path] = derived_data_path
+    end
+
+    $options[:build_products_dir] = build_products_dir
+end
+
+# This isn't foolproof, but it's the easiest way of making sure that we pick the correct xctestrun file for
+# a testplan that was built as part of an earlier step.
+def find_xctestrun_file()
+    sdk = get_or_die($options, :sdk)
+    scheme = get_or_die($options, :scheme)
+    testplan = get_or_die($options, :testplan)
+    build_products_dir = rel_to_repo(get_or_die($options, :build_products_dir))
+    architecture = $options.fetch(:xctestrun_architecture, "arm64-x86_64")
+
+    xctestrun = nil
+    max_matches = 0
+
+    # Match against the following elements in the filename. Whichever gets the most of them wins.
+    elements = [sdk, testplan, scheme, architecture]
+    Dir.chdir(build_products_dir) {
+        Dir.glob("**/*").each do |path|
+            path = File.expand_path(path)
+            next unless path.end_with?(".xctestrun")
+
+            puts("Considering #{path}...")
+            basename = File.basename(path)
+            this_matches = 0
+            for element in elements
+                next unless basename.include?(element)
+                this_matches += 1
+            end
+
+            next unless this_matches > max_matches
+            max_matches = this_matches
+            xctestrun = path
+            puts("Found xctestrun: #{path}")
+        end
+    }
+
+    return xctestrun
+end
+
+## Lanes
+{% block private_lanes %}{% endblock %}
+
+lane :buildit do |arguments|
+    initialize(arguments)
+
+    begin
+        {% block prebuild %}
+        increment_version_number(version_number: $options[:version_number], xcodeproj: $options[:xcodeproj])
+        increment_build_number(build_number: $options[:build_number], xcodeproj: $options[:xcodeproj])
+        setup_codesigning()
+        {% endblock %}
+
+        {% block build_app_setup %}
+        build_app_options = filter_args($options, "build_app", [
+            {% block build_app_options %}
+            :clean,
+            :scheme,
+            :xcargs,
+            :output_name,
+            :export_method,
+            :buildlog_path,
+            :configuration,
+            :use_system_scm,
+            :output_directory,
+            :derived_data_path,
+            :cloned_source_packages_path,
+            :skip_package_dependencies_resolution,
+            {% endblock %}
+        ])
+
+        if (team_id = $options[:team_id])
+            build_app_options[:export_team_id] = team_id
+        end
+        {% endblock %}
+
+        build_app(**build_app_options)
+
+        {% block postbuild %}
+        if $options[:notarize]
+            notarize_path = $options.fetch(:notarize_package, "#{$options[:output_directory]}/#{$options[:output_name]}.app")
+
+            notarize(
+                {% block notarize_args %}
+                bundle_id: $app_identifier,
+                package: notarize_path,
+                print_log: true,
+                {% endblock %}
+            )
+        end
+        {% endblock %}
+    ensure
+        {% block build_cleanup %}
+        delete_keychain_if_needed()
+        {% endblock %}
+    end
+end
+
+lane :testit do |arguments|
+    initialize(arguments)
+
+    begin
+        {% block pretest %}
+        if (products_zip = $options[:build_products_zip])
+            $options[:skip_build] = true
+            $options[:test_without_building] = true
+
+            unzip_build_products() # unzip build products and set `build_products_dir`
+
+            $options[:xctestrun] = find_xctestrun_file()
+        elsif $options[:test_without_building] and (products_dir = $options[:build_products_dir])
+            $options[:xctestrun] = find_xctestrun_file()
+        end
+
+        # We need to tell xcodebuild where to run the test bundle. More information on xcodebuild destinations
+        # can be found here: https://mokacoding.com/blog/xcodebuild-destination-options/
+        unless (destination = $options[:destination])
+            destination = "platform=#{$options[:human_platform]}"
+
+            if $options[:create_simulator]
+                destination << " Simulator"
+            end
+
+            if $options[:build_for_testing]
+                destination = "generic/#{destination}"
+            else
+                if (destination_arch = $options[:destination_arch])
+                    destination << ",arch=#{destination_arch}"
+                end
+                if (destination_name = $options[:destination_name])
+                    destination << ",name=#{destination_name}"
+
+                    if $options[:create_simulator] # make sure to specify arch, in case Rosetta is available
+                        arch = $options.fetch(:architecture, `uname -m`.strip)
+                    end
+                elsif (destination_id = $options[:destination_id])
+                    destination << ",id=#{destination_id}"
+                end
+            end
+
+            $options[:destination] = destination
+        end
+
+        if $options[:create_simulator] and not $options[:build_for_testing]
+            create_simulator()
+        end
+
+        if not $options[:test_without_building]
+            setup_codesigning()
+            increment_version_number(version_number: $options[:version_number], xcodeproj: $options[:xcodeproj])
+            increment_build_number(build_number: $options[:build_number], xcodeproj: $options[:xcodeproj])
+        end
+        {% endblock %}
+
+        {% block run_tests_setup %}
+        run_tests_options = filter_args($options, "run_tests", [
+            {% block run_tests_options %}
+            :clean,
+            :xcargs,
+            :scheme,
+            :testplan,
+            :xctestrun,
+            :skip_build,
+            :destination,
+            :buildlog_path,
+            :use_system_scm,
+            :output_directory,
+            :build_for_testing,
+            :derived_data_path,
+            :test_without_building,
+            :should_zip_build_products,
+            :cloned_source_packages_path,
+            :disable_package_automatic_updates,
+            :skip_package_dependencies_resolution,
+            {% endblock %}
+        ])
+        {% endblock %}
+
+        run_tests(**run_tests_options)
+
+        {% block posttest %}
+        {% endblock %}
+    ensure
+        {% block test_cleanup %}
+        delete_keychain_if_needed()
+        stop_simulator_if_needed()
+        {% endblock %}
+    end
+end
+
+lane :shipit do |arguments|
+    initialize(arguments)
+
+    begin
+        {% block preship %}{% endblock %}
+
+        {% if config["upload_to_testflight"] %}
+        sign_in_to_app_store_connect()
+
+        {% block upload_to_testflight %}
+        upload_to_testflight(
+            {% block testflight_upload_args %}
+            ipa: $options[:ipa],
+            app_platform: $options[:platform],
+            distribute_external: true,
+            groups: $options[:testflight_groups],
+            changelog: $options[:changelog],
+            {% endblock %}
+        )
+        {% endblock %}
+        {% elif config["promote_testflight_release"] %}
+        sign_in_to_app_store_connect()
+        promote_testflight_release()
+        {% elif config["deliver"] %}
+        sign_in_to_app_store_connect()
+
+        {% block deliver %}
+        deliver(
+            {% block deliver_args %}
+            ipa: $options[:ipa],
+            app_version: $options[:version_number],
+            build_number: $options[:build_number],
+            {% endblock %}
+        )
+        {% endblock %}
+        {% elif config["sparkle"] %}
+        {% block sparkle %}
+        require 'digest'
+
+        binary_path = rel_to_repo(get_or_die($options, :sparkle_binary_path))
+        ed_key = get_or_die($secrets, :appcast_ed_key)
+        item_file = rel_to_repo(get_or_die($options, :sparkle_item_file))
+        sparkle_xml_file = rel_to_repo(get_or_die($options, :sparkle_xml_file))
+        sparkle_xml_name = $options.fetch(:sparkle_xml_name, "sparkle.xml")
+        output_directory = rel_to_repo(get_or_die($options, :output_directory))
+        download_url = get_or_die($options, :sparkle_download_url)
+
+        hash = Digest::SHA256.hexdigest(File.read(binary_path))
+        signature = `echo #{ed_key} | sign_update -f - #{binary_path}`.strip
+        die "Could not sign binary: #{signature}" unless $?.success?
+
+        signature << " hash=\"#{hash}\""
+
+        ENV['APPCAST_SIGNATURE'] = signature
+        ENV['APPCAST_DOWNLOAD_URL'] = download_url
+
+        replace_identifier = $options.fetch(:sparkle_replace_identifier, "<!-- >8 Next release >8 -->\n")
+        sparkle_item = `envsubst '${APPCAST_SIGNATURE},${APPCAST_DOWNLOAD_URL}' < "#{item_file}" 2> /dev/stdout`
+        die "Could not create update xml file: #{sparkle_item}" unless $?.success?
+
+        sparkle_xml = File.read(sparkle_xml_file)
+        sparkle_xml.sub!(replace_identifier, replace_identifier + sparkle_item)
+
+        File.open("#{output_directory}/#{sparkle_xml_name}", 'w') { |file|
+            file.write(sparkle_xml)
+        }
+        {% endblock %}
+        {% else %}{% block custom_shipit %}
+        {# hic sunt dracones #}
+        {% endblock %}{% endif %}
+
+        {% block postship %}{% endblock %}
+    ensure
+
+    end
+end
+
+lane :shoutit do |arguments|
+    initialize(arguments)
+
+    {% block preshout %}
+    if (filename = $options[:slack_filename])
+        filename = rel_to_repo(filename)
+        $options[:slack_message] = File.read(filename)
+    end
+    {% endblock %}
+
+    puts "channel: #{$options[:slack_channel]}, message: #{$options[:slack_message]}"
+
+    #slack(
+    #    {% block slack_args %}
+    #    message: $options[:slack_message],
+    #    channel: $options[:slack_channel],
+    #    success: $options.fetch(:slack_success, true),
+    #    {% endblock %}
+    #)
+
+    {% block postshout %}
+    {% endblock %}
+end

@@ -45,6 +45,8 @@ extension Substring {
 
 extension String {
     public static let ansiEscape: Self = "\u{001B}["
+    public static let gitDateFormat = "EEE MMM d HH:mm:ss YYYY Z"
+    public static let timestampDateFormat = "yyMMddHHmm"
 
     public func indented(times: Int = 1, prefix: String = "    ") -> String {
         let lines = components(separatedBy: "\n")

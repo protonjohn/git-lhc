@@ -8,6 +8,7 @@
 import Foundation
 import Parsing
 import LHCInternal
+import System
 
 /// The build configuration file format used for LHC.
 ///
@@ -140,11 +141,13 @@ public struct Configuration {
 }
 
 extension Configuration {
-    public internal(set) static var getConfig: ((String) -> Result<Self, Swift.Error>?) = {
-        guard let repoUrl = URL(string: $0),
-              let configFile = Internal.configFilePath,
-              case let configUrl = URL(fileURLWithPath: configFile, relativeTo: repoUrl),
-              let contents = Internal.fileManager.contents(atPath: configUrl.path()),
+    public internal(set) static var getConfig: ((String) -> Result<Self, Swift.Error>?) = { repoPathString in
+        guard let configPathString = Internal.configFilePath else {
+            return nil
+        }
+
+        let configPath = FilePath(repoPathString).pushing(FilePath(configPathString))
+        guard let contents = Internal.fileManager.contents(atPath: configPath.string),
               let string = String(data: contents, encoding: .utf8) else {
             return nil
         }

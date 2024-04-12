@@ -95,8 +95,8 @@ struct Embed: ParsableCommand {
     }()
 
     mutating func validate() throws {
-        guard let resolvedURL, Internal.fileManager.fileExists(atPath: resolvedURL.path()) else {
-            throw ValidationError("No file exists at \(resolvedURL?.path() ?? "(nil)").")
+        guard let resolvedURL, Internal.fileManager.fileExists(atPath: resolvedURL.path(percentEncoded: false)) else {
+            throw ValidationError("No file exists at \(resolvedURL?.path(percentEncoded: false) ?? "(nil)").")
         }
 
         guard format != nil else {
@@ -170,7 +170,7 @@ struct Embed: ParsableCommand {
     }
 
     mutating func replace(in repo: inout Repositoryish, with version: Version) throws {
-        let path = resolvedURL!.path()
+        let path = resolvedURL!.path(percentEncoded: false)
 
         let value: String
         switch portion {

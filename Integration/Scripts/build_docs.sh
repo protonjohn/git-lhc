@@ -57,16 +57,6 @@ EOF
     add_docs "$MANPAGE_FILE" "$markdown"
 }
 
-function fastlane_readme() {
-    local markdown
-    fastlane docs
-
-    # Remove the doc header at the top, and knock all headers one level down, since DocC only allows one top-level
-    # header per document.
-    markdown=$(sed -e '1,/^----$/d; s/^#/##/' "$FASTLANE_README")
-    add_docs "$FASTLANE_FILE" "$markdown"
-}
-
 function main() {
     local output_dir
     local base_path
@@ -78,9 +68,6 @@ function main() {
 
     echo "Generating manual..."
     manpage
-
-    echo "Generating fastlane usage..."
-    fastlane_readme
 
     echo "Generating documentation..."
     swift package --allow-writing-to-directory "$output_dir" \

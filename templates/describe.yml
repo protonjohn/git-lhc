@@ -1,0 +1,75 @@
+# Create a description for the given tag, or perform a dry run for all trains if necessary if no tag exists.
+# Inputs "templates" and "trains" should be whitespace-separated if multiple values are desired.
+# Use `cmd_prefix` to specify a run prefix or bootstrap method of your choice, e.g., "mint run ".
+
+spec:
+  inputs:
+    git_depth:
+      type: number
+      default: 100
+    git_submodule_strategy:
+      default: none
+    cmd_prefix:
+      default: ""
+    # a *whitespace-separated* list of templates.
+    templates:
+      default: release
+    predescribe:
+      default: ""
+    output_directory:
+      default: describe
+    expire_in:
+      default: 2 days
+    # a *comma-separated* list of trains.
+    trains:
+      type: string
+
+---
+.lhc_describe:
+  variables:
+    GIT_DEPTH: $[[ inputs.git_depth ]]
+    GIT_SUBMODULE_STRATEGY: $[[ inputs.git_submodule_strategy ]]
+  before_script:
+    - |
+      git fetch origin 'refs/notes/*:refs/notes/*' 'refs/tags/*:refs/tags/*' # Fetch all commit metadata
+  script:
+    - |
+      TEMPLATE_ARGS=()
+      function add_arg() {
+          TEMPLATE_ARGS+=("$1")
+          TEMPLATE_ARGS+=("$2")
+      }
+
+      for template in $[[ inputs.templates ]]; do
+          add_arg "--template" "$template"
+      done
+
+      add_arg '--define' "CI=$CI"
+      add_arg '--define' "CI_JOB_ID=$CI_JOB_ID"
+      add_arg '--define' "CI_PAGES_URL=$CI_PAGES_URL"
+      add_arg '--define' "CI_PIPELINE_ID=$CI_PIPELINE_ID"
+      add_arg '--define' "CI_COMMIT_REF_SLUG=$CI_COMMIT_REF_SLUG"
+
+      $[[ inputs.predescribe ]]
+
+      if [ -n "$CI_COMMIT_TAG" ]; then
+          $[[ inputs.cmd_prefix ]]git-lhc describe \
+            --define 'CI_COMMIT_TAG=${CI_COMMIT_TAG}' \
+            --show "$CI_COMMIT_TAG" \
+            --output "$[[ inputs.output_directory ]]/release/" \
+            "${TEMPLATE_ARGS[@]}"
+      else
+          for train in $[[ inputs.trains ]]; do
+              $[[ inputs.cmd_prefix ]]git-lhc describe \
+                --train "$train" \
+                --channel alpha \
+                --show HEAD \
+                --output "$[[ inputs.output_directory ]]/${train}/" \
+                "${TEMPLATE_ARGS[@]}"
+          done
+      fi
+
+  artifacts:
+    paths:
+      - $[[ inputs.output_directory ]]/*/*
+    expire_in: $[[ inputs.expire_in ]]

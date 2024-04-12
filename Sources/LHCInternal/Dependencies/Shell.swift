@@ -288,7 +288,7 @@ public struct Shell: Shellish {
                 try posix(posix_spawn_file_actions_addclose(&actions, handle.fileDescriptor))
             }
 
-            let path = url.path()
+            let path = url.path(percentEncoded: false)
             var arguments: [UnsafeMutablePointer<CChar>?] = ([path] + arguments).map { argument in
                 var argument = argument
                 return argument.withUTF8 {
@@ -620,7 +620,7 @@ public struct Shell: Shellish {
         }
 
         let stderrPipe = Pipe()
-        let scriptPath = try Internal.fileManager.tempFile(contents: "\(command)\n".data(using: .utf8)).path()
+        let scriptPath = try Internal.fileManager.tempFile(contents: "\(command)\n".data(using: .utf8)).path(percentEncoded: false)
 
         let components = shebang.split(separator: " ")
         let executableURL = URL(filePath: String(components.first!))

@@ -12,6 +12,7 @@ import Version
 import LHC
 import LHCInternal
 import Stencil
+import System
 
 struct Describe: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -21,18 +22,20 @@ struct Describe: ParsableCommand {
     @OptionGroup()
     var parent: LHC.Options
 
-    @Flag(
-        name: .shortAndLong,
-        help: """
-            Show the changelog up to HEAD since the last release tag, as if a new release were being created. \
-            Note: This flag is sensitive to the --channel option.
-            """
-    )
-    var dryRun: Bool = false
-
     @Option(
         name: .shortAndLong,
-        help: "Which parts of the changelog to show. Can be latest, all, or a specific commit hash."
+        help: """
+            Which parts of the changelog to show. Possible values are:
+
+            - all: show all tagged versions for a given channel.
+            - HEAD: show the version at HEAD.
+                * If HEAD is tagged, shows the most senior release for HEAD.
+                * If HEAD is not tagged or the tag's channel does not match, simulates a release for the given channel.
+            - latest: show the latest tagged version for a given channel.
+            - <version>: when combined with --train (if using a tag prefix), show that specific version. \
+            Release channel is inferred from the version.
+            - <tag>: infer both train and release channel from the tag name, and show that specific version.
+            """
     )
     var show: OutputSpec = .latest
 
@@ -57,7 +60,10 @@ struct Describe: ParsableCommand {
 
     @Option(
         name: [.customShort("D", allowingJoined: true), .customLong("define")],
-        help: "Define a property to a value before interpreting any arguments specified by `--template`."
+        help: """
+            Define an initial property before evaluating the lhc config file, which is provided in the context for \
+            arguments specified by `--template`.
+            """
     )
     var defines: [LHC.Define] = []
 
@@ -100,7 +106,11 @@ struct Describe: ParsableCommand {
 
     mutating func run() throws {
         Internal.initialize()
-        let options = try parent.options?.get()
+        parent.commandConfigDefines = defines.reduce(into: [:]) {
+            $0[$1.property] = $1.value
+        }
+
+        var options = try parent.options?.get()
 
         let repo = try Internal.openRepo(at: parent.repo)
 
@@ -108,14 +118,14 @@ struct Describe: ParsableCommand {
         switch show {
         case .all:
             releases = try repo.allReleases(
-                allowDirty: dryRun,
+                allowDirty: false,
                 forceLatestVersionTo: nil,
                 channel: parent.channel,
                 options: options
             )
-        case .latest:
-            guard let release = try repo.latestRelease(
-                allowDirty: dryRun,
+        case .head:
+           guard let release = try repo.latestRelease(
+                allowDirty: true,
                 untaggedReleaseChannel: parent.channel,
                 forceLatestVersionTo: nil,
                 options: options
@@ -125,7 +135,77 @@ struct Describe: ParsableCommand {
             }
 
             releases = [release]
+        case .latest:
+            guard let release = try repo.latestRelease(
+                allowDirty: false,
+                untaggedReleaseChannel: parent.channel,
+                forceLatestVersionTo: nil,
+                options: options
+            ) else {
+                releases = []
+                break
+            }
+
+            releases = [release]
+        // A name has been passed, but it doesn't look like it parses to a version. If it matches a tag prefix in our
+        // configuration, and the train hasn't been passed, infer the train from the longest matching prefix.
+        case let .tagName(name):
+            guard parent.train == nil else {
+                throw DescribeReleaseError.tagIsNotAVersion(prefix: nil, name)
+            }
+
+            // Future: a more efficient way of doing this, involving pruning/traversing the ingested config in
+            // a smarter way
+            var prefixLength: Int = 0
+            var inferredTrain: String?
+            var inferredTagPrefix: String?
+            for (train, options) in try parent.allTrainOptions() {
+                guard let tagPrefix = options.tagPrefix else { continue }
+                if name.hasPrefix(tagPrefix),
+                   prefixLength < tagPrefix.count {
+                    prefixLength = tagPrefix.count
+                    inferredTrain = train
+                    inferredTagPrefix = tagPrefix
+                }
+            }
+
+            guard let inferredTagPrefix,
+                  let version = Version(name[inferredTagPrefix.endIndex...]) else {
+                throw DescribeReleaseError.tagIsNotAVersion(prefix: inferredTagPrefix, name)
+            }
+
+            let inferredChannel = version.releaseChannel
+            parent.channel = inferredChannel
+            parent.train = inferredTrain
+
+            // Re-evaluate the repository configuration according to the release channel and train name.
+            let newConfig = try parent.config?.get().eval(
+                train: inferredTrain,
+                channel: inferredChannel,
+                define: parent.commandConfigDefines
+            )
+            options = try newConfig?.options
+            parent.evaluatedConfig = newConfig.map(Result.success)
+            parent.options = options.map(Result.success)
+
+            guard let release = try repo.release(exactVersion: version, options: options) else {
+                throw DescribeReleaseError.versionNotFound(version: version, train: inferredTrain)
+            }
+
+            releases = [release]
         case let .exact(version):
+            let inferredChannel = version.releaseChannel
+            parent.channel = inferredChannel
+
+            let newConfig = try parent.config?.get().eval(
+                train: parent.train,
+                channel: inferredChannel,
+                define: parent.commandConfigDefines
+            )
+            options = try newConfig?.options
+            parent.evaluatedConfig = newConfig.map(Result.success)
+            parent.options = options.map(Result.success)
+
             guard let release = try repo.release(exactVersion: version, options: options) else {
                 throw DescribeReleaseError.versionNotFound(version: version, train: parent.train)
             }
@@ -148,17 +228,33 @@ struct Describe: ParsableCommand {
         if let outputPath {
             if outputPath.hasDirectoryPath {
                 let plural = show == .all ? "s" : ""
-                let descriptionPath = outputPath.appending(path: "release\(plural).\(format.fileExtension)").path()
+                let descriptionPath = outputPath.appending(path: "release\(plural).\(format.fileExtension)").path(percentEncoded: false)
+
+                let outputPathString = outputPath.absoluteURL.path(percentEncoded: false)
+                var isDirectory: Bool?
+                if !Internal.fileManager.fileExists(atPath: outputPathString, isDirectory: &isDirectory) {
+                    try Internal.fileManager.createDirectory(
+                        atPath: outputPathString,
+                        withIntermediateDirectories: true
+                    )
+                }
+
                 if let data = result.data {
                     guard Internal.fileManager
                         .createFile(atPath: descriptionPath, contents: data) else {
                         throw LHCError.invalidPath(descriptionPath)
                     }
                 }
-                try render(releases: releases, repo: repo, options: options, outputDirectoryPath: outputPath.path())
+                try render(
+                    releases: releases,
+                    repo: repo,
+                    options: options,
+                    evaluatedConfig: try? parent.evaluatedConfig?.get(),
+                    outputDirectoryPath: outputPathString
+                )
             } else if templates.isEmpty {
                 if let data = result.data {
-                    let path = outputPath.path()
+                    let path = outputPath.path(percentEncoded: false)
                     guard Internal.fileManager
                         .createFile(atPath: path, contents: data) else {
                         throw LHCError.invalidPath(path)
@@ -171,7 +267,12 @@ struct Describe: ParsableCommand {
             }
         } else {
             if !templates.isEmpty {
-                try render(releases: releases, repo: repo, options: options)
+                try render(
+                    releases: releases,
+                    repo: repo,
+                    options: options,
+                    evaluatedConfig: try? parent.evaluatedConfig?.get()
+                )
             }
             if let string = result.string {
                 Internal.print(string)
@@ -183,14 +284,18 @@ struct Describe: ParsableCommand {
         releases: [Release],
         repo: Repositoryish,
         options: Configuration.Options?,
+        evaluatedConfig: Configuration.Defines?,
         outputDirectoryPath: String = Internal.fileManager.currentDirectoryPath
     ) throws {
         var isDirectory: Bool?
-        guard var templatesDirectory = options?.templatesDir,
-              Internal.fileManager.fileExists(atPath: templatesDirectory, isDirectory: &isDirectory),
+        guard var templatesDirectory = options?.templatesDir else{
+            throw ValidationError("Templates directory is not configured.")
+        }
+
+        guard Internal.fileManager.fileExists(atPath: templatesDirectory, isDirectory: &isDirectory),
               isDirectory == true else {
             throw ValidationError("""
-                Templates directory is either not configured, does not exist, or is not a directory.
+                Templates path at \(templatesDirectory) \(isDirectory == false ? "is not a directory" : "does not exist")
                 """)
         }
 
@@ -201,6 +306,7 @@ struct Describe: ParsableCommand {
         let environment = Stencil.Environment(
             repository: repo,
             options: options,
+            evaluatedConfig: evaluatedConfig,
             urls: [URL(filePath: templatesDirectory)]
         )
 
@@ -210,7 +316,7 @@ struct Describe: ParsableCommand {
             try render(
                 release: release,
                 in: environment,
-                checklistSubdirectoryPath: checklistOutputPath?.path(),
+                checklistSubdirectoryPath: checklistOutputPath?.path(percentEncoded: false),
                 repo: repo,
                 options: options
             ).forEach {
@@ -221,7 +327,7 @@ struct Describe: ParsableCommand {
                 try render(
                     release: release,
                     in: environment,
-                    checklistSubdirectoryPath: checklistOutputPath?.path(),
+                    checklistSubdirectoryPath: checklistOutputPath?.path(percentEncoded: false),
                     repo: repo,
                     options: options
                 ).forEach {
@@ -230,32 +336,26 @@ struct Describe: ParsableCommand {
             }
         }
 
-        var createdDirectories = Set<String>()
-        for (path, fileContents) in contents {
-            defer {
-                _ = Internal.fileManager.createFile(atPath: path, contents: fileContents)
-            }
+        var createdDirectories: Set<String> = []
+        for (path, content) in contents {
+            let directoryPath = FilePath(path).removingLastComponent().string
 
-            guard let lastSlash = path.lastIndex(of: "/") else { continue }
-            let directory = String(path[path.startIndex..<lastSlash])
-            guard !createdDirectories.contains(directory) else { continue }
+            if !directoryPath.isEmpty {
+                var isDirectory: Bool? = true
+                if createdDirectories.contains(directoryPath) ||
+                    Internal.fileManager.fileExists(atPath: directoryPath, isDirectory: &isDirectory) {
 
-            let directoryComponents = directory.split(separator: "/")
-            for index in 1...directoryComponents.count {
-                let parent = "/" + directoryComponents[0..<index].joined(separator: "/")
-
-                guard !createdDirectories.contains(where: { $0.hasPrefix(parent) }) else { continue }
-
-                var isDirectory: Bool? = false
-                guard !Internal.fileManager.fileExists(atPath: parent, isDirectory: &isDirectory) else {
                     guard isDirectory == true else {
                         throw POSIXError(.EEXIST)
                     }
-                    continue
+                } else {
+                    try Internal.fileManager.createDirectory(atPath: directoryPath, withIntermediateDirectories: true)
+                    createdDirectories.insert(directoryPath)
                 }
+            }
 
-                try Internal.fileManager.createDirectory(atPath: parent, withIntermediateDirectories: false)
-                createdDirectories.insert(parent)
+            guard Internal.fileManager.createFile(atPath: path, contents: content) else {
+                throw LHCError.invalidPath(path)
             }
         }
     }
@@ -267,9 +367,48 @@ struct Describe: ParsableCommand {
         repo: Repositoryish,
         options: Configuration.Options?
     ) throws -> [String: Data] {
-        var context: [String: Any] = [:]
+        var context: [String: Any] = [
+            "now": Date(),
+            "uuid": UUID().uuidString,
+            "release": release,
+            "version": release.versionString,
+            "short_version": release.shortVersion?.description ?? release.versionString,
+            "channel": String(describing: release.version?.releaseChannel ?? .production),
+        ]
+
+        if let train = release.train {
+            context["train"] = train
+        }
+
         if let evaluatedConfig = try parent.evaluatedConfig?.get() {
             context["config"] = evaluatedConfig.jsonDict
+        }
+
+        var target: ObjectID?
+        if let releaseHash = release.objectHash, let oid = ObjectID(string: releaseHash) {
+            target = oid
+        } else if show == .head, let oid = try? repo.HEAD().oid {
+            target = oid
+        }
+
+        if let targetOid = target, let object = try? repo.object(targetOid) {
+            context["object"] = object
+
+            if let tag = object as? Tagish, let tagTarget = try? repo.object(tag.target.oid) {
+                context["target"] = tagTarget
+                target = tagTarget.oid
+            } else {
+                context["target"] = object
+            }
+        }
+
+        if let target {
+            let tagsByTarget = try repo.tagsByTarget()
+            if let otherTags = tagsByTarget[target] {
+                context["other_versions"] = otherTags.compactMap {
+                    Version(prefix: options?.tagPrefix, versionString: $0.name)
+                }.sorted()
+            }
         }
 
         let oidStringLength = try ObjectID.minimumLength(
@@ -310,24 +449,74 @@ struct Describe: ParsableCommand {
 
         return contents
     }
+
+    
+    func recursivelyCreateFilesAndDirectories(_ contents: [String: Data]) throws {
+        var createdDirectories = Set<String>()
+        for (path, fileContents) in contents {
+            func createFile() throws {
+                guard Internal.fileManager.createFile(atPath: path, contents: fileContents) else {
+                    throw LHCError.invalidPath(path)
+                }
+            }
+
+            guard let lastSlash = path.lastIndex(of: "/") else {
+                try createFile()
+                continue
+            }
+
+            let directory = String(path[path.startIndex..<lastSlash])
+            guard !createdDirectories.contains(directory) else {
+                try createFile()
+                continue
+            }
+
+            let directoryComponents = directory.split(separator: "/")
+            for index in 1...directoryComponents.count {
+                let parent = "/" + directoryComponents[0..<index].joined(separator: "/")
+
+                guard !createdDirectories.contains(where: { $0.hasPrefix(parent) }) else { continue }
+
+                var isDirectory: Bool? = false
+                guard !Internal.fileManager.fileExists(atPath: parent, isDirectory: &isDirectory) else {
+                    guard isDirectory == true else {
+                        throw POSIXError(.EEXIST)
+                    }
+
+                    createdDirectories.insert(parent) // so we don't hit the filesystem repeatedly for this path
+                    continue
+                }
+
+                try Internal.fileManager.createDirectory(atPath: parent, withIntermediateDirectories: false)
+                createdDirectories.insert(parent)
+            }
+
+            try createFile()
+        }
+    }
 }
 
 enum OutputSpec: Equatable, ExpressibleByArgument {
     case all
+    case head
     case latest
     case exact(version: Version)
+    case tagName(String)
 
     init?(argument: String) {
         switch argument {
         case "all":
             self = .all
+        case "head", "HEAD":
+            self = .head
         case "latest":
             self = .latest
         default:
-            guard let version = Version(argument) else {
-                return nil
+            if let version = Version(argument) {
+                self = .exact(version: version)
+            } else {
+                self = .tagName(argument)
             }
-            self = .exact(version: version)
         }
     }
 }
@@ -335,6 +524,7 @@ enum OutputSpec: Equatable, ExpressibleByArgument {
 enum DescribeReleaseError: Error, CustomStringConvertible {
     case emptyRelease(from: TagReferenceish, to: ObjectID)
     case versionNotFound(version: Version, train: String?)
+    case tagIsNotAVersion(prefix: String?, String)
 
     var description: String {
         switch self {
@@ -344,6 +534,12 @@ enum DescribeReleaseError: Error, CustomStringConvertible {
             var result = "No version \(version) found in commit history"
             if let releaseTrain = train {
                 result += " for train '\(releaseTrain)'"
+            }
+            return result
+        case let .tagIsNotAVersion(prefix, string):
+            var result = "'\(string)' is not a valid version"
+            if let prefix {
+                result += " in '\(prefix)\(string)'"
             }
             return result
         }

@@ -7,6 +7,7 @@
 
 import Foundation
 import Version
+import System
 
 public protocol EnvironmentVariable {
     var key: String { get }
@@ -55,16 +56,14 @@ public enum LHCEnvironment: String, EnvironmentVariable {
     case trainName = "LHC_TRAIN_NAME"
     case channel = "LHC_RELEASE_CHANNEL"
     case previousChecklistResult = "LHC_CHECK_PREVIOUS"
-    case jiraApiToken = "LHC_JIRA_APITOKEN"
-    case jiraUsername = "LHC_JIRA_USERNAME"
-    case jiraEndpoint = "LHC_JIRA_ENDPOINT"
 
     public var defaultValue: String? {
-        guard case .configFilePath = self else {
+        switch self {
+        case .configFilePath:
+            return FilePath(Internal.repoPath).appending(".lhc").string
+        default:
             return nil
         }
-        
-        return Internal.fileManager.traverseUpwardsUntilFinding(fileName: ".lhc")
     }
 }
 
