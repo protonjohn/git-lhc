@@ -98,7 +98,7 @@ struct Find: ParsableCommand {
             includeChecklists: true
         )
 
-        if let outputPath = output?.path(), let data = result.data {
+        if let outputPath = output?.path(percentEncoded: false), let data = result.data {
             guard Internal.fileManager
                 .createFile(atPath: outputPath, contents: data) else {
                 throw LHCError.invalidPath(outputPath)

@@ -9,6 +9,8 @@ import Foundation
 import SwiftGit2
 
 public enum Internal {
+    public static var urlSession = URLSession.shared
+
     public static func initialize() {
         SwiftGit2.initialize()
         try! Internal.registerTransports()
@@ -59,7 +61,7 @@ public enum Internal {
         }
 
         let url = URL(filePath: path)
-        var result = url.deletingLastPathComponent().path()
+        var result = url.deletingLastPathComponent().path(percentEncoded: false)
         while result.hasSuffix("/") {
             result.removeLast()
         }

@@ -42,7 +42,7 @@ struct New: ParsableCommand, QuietCommand {
         let home = Internal.fileManager.homeDirectoryForCurrentUser
             .appending(path: ".ssh", directoryHint: .isDirectory)
             .appending(path: "id_rsa", directoryHint: .notDirectory)
-        return home.path()
+        return home.path(percentEncoded: false)
     }()
 
     @Flag(
@@ -59,6 +59,9 @@ struct New: ParsableCommand, QuietCommand {
 
     @Flag(help: "Push the resulting tag to the specified remote (see the '--remote' option.)")
     var push: Bool = false
+
+    @Option(help: "A path to a file containing release notes to include in the tag.")
+    var releaseNotes: String?
 
     @Option(help: "The remote to use when pushing the tag.")
     var remote: String = "origin"
@@ -153,17 +156,25 @@ struct New: ParsableCommand, QuietCommand {
     }
 
     mutating func editNotes(for release: Release, options: Configuration.Options?) throws -> String? {
-        var releaseNotes = ""
+        var releaseNotesContents = ""
+
+        if let releaseNotes {
+            guard let contents = Internal.fileManager.contents(atPath: releaseNotes) else {
+                throw LHCError.invalidPath(releaseNotes)
+            }
+            releaseNotesContents = String(data: contents, encoding: .utf8) ?? ""
+        }
+
         if !quiet {
-            Internal.print("Release notes:", releaseNotes, separator: "\n")
+            Internal.print("Release notes:", releaseNotesContents, separator: "\n")
             if Internal.promptForConfirmation("Edit?", continueText: false, defaultAction: false) {
                 releaseNotes = try Internal.fileManager.editFile(
-                    releaseNotes,
+                    releaseNotesContents,
                     temporaryFileName: "release_notes.txt"
                 ) ?? ""
             }
         }
-        return releaseNotes
+        return releaseNotesContents
     }
 
     mutating func run() throws {

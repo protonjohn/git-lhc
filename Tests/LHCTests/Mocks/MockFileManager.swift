@@ -8,6 +8,7 @@
 import Foundation
 import LHC
 import LHCInternal
+import System
 @testable import git_lhc
 
 struct MockFileManager: FileManagerish {
@@ -109,7 +110,7 @@ struct MockFileManager: FileManagerish {
                     name: url.lastPathComponent,
                     contents: data
                 ),
-                atPath: url.deletingLastPathComponent().path()
+                atPath: url.deletingLastPathComponent().path(percentEncoded: false)
             )
             return true
         } catch {
@@ -118,20 +119,47 @@ struct MockFileManager: FileManagerish {
     }
 
     mutating func createDirectory(atPath path: String, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey : Any]?) throws {
+        let directoryPath = FilePath(path)
 
-        guard createIntermediates == false else {
-            fatalError("Not yet implemented")
+        if createIntermediates {
+            // Parse the file path, iterate over the components, and make sure all parent directories exist
+            // before proceeding.
+            var createdDirectories = Set<FilePath>()
+            let directoryComponents = directoryPath.components
+
+            for prefixLength in 1...directoryComponents.count {
+                let parent = FilePath(
+                    root: directoryPath.root,
+                    directoryComponents.prefix(prefixLength)
+                )
+
+                guard !createdDirectories.contains(parent) &&
+                        !createdDirectories.contains(where: { $0.starts(with: parent) }) else {
+                    continue
+                }
+
+                var isDirectory: Bool? = false
+                guard !fileExists(atPath: parent.string, isDirectory: &isDirectory) else {
+                    guard isDirectory == true else {
+                        throw POSIXError(.EEXIST)
+                    }
+
+                    createdDirectories.insert(parent) // so we don't hit the filesystem repeatedly for this path
+                    continue
+                }
+
+                try createDirectory(atPath: parent.string, withIntermediateDirectories: false)
+                createdDirectories.insert(parent)
+            }
         }
 
-        guard let url = URL(string: path) else { throw POSIXError(.EINVAL) }
-
-        guard !fileExists(atPath: path) else {
+        guard !fileExists(atPath: path), let lastComponent = directoryPath.lastComponent else {
             throw POSIXError(.EEXIST)
         }
 
         try setNode(
-            .directory(name: url.lastPathComponent, contents: []),
-            atPath: url.deletingLastPathComponent().path()
+            .directory(name: lastComponent.string, contents: []),
+            atPath: directoryPath.removingLastComponent().string
         )
     }
 
@@ -143,14 +171,14 @@ struct MockFileManager: FileManagerish {
         let name = "\(UUID())"
         let url = URL(filePath: "/tmp/\(name)")
 
-        try createDirectory(atPath: url.path())
+        try createDirectory(atPath: url.path(percentEncoded: false))
 
         try setNode(.directory(name: name, contents: []), atPath: "/tmp")
         return url
     }
 
     func canonicalPath(for url: URL) throws -> String? {
-        return url.absoluteURL.path()
+        return url.absoluteURL.path(percentEncoded: false)
     }
 
     func contents(atPath path: String) -> Data? {

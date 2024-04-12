@@ -10,9 +10,9 @@ import Foundation
 extension Configuration.IngestedConfig {
     public typealias Defines = Configuration.Defines
 
-    typealias Property = Configuration.Property
-    typealias Condition = Configuration.Condition
-    typealias Value = Configuration.Value
+    public typealias Property = Configuration.Property
+    public typealias Condition = Configuration.Condition
+    public typealias Value = Configuration.Value
 
     @discardableResult
     func eval(
@@ -132,7 +132,8 @@ extension Configuration.IngestedConfig {
         conditions.formUnion(Condition.set(property, value: evaluatedValue))
         return evaluatedValue
     }
-
+    
+    /// Evaluate an ingested configuration given a set of initial values.
     public func eval(initialValues: Defines) throws -> Defines {
         var defines: Defines = initialValues
         var graph = properties

@@ -55,7 +55,7 @@ class LHCTestCase: XCTestCase {
         Internal.fileManager = fileManager
 
         Internal.openRepo = { url in
-            XCTAssertEqual((url.path() as NSString).standardizingPath, Self.repoPath)
+            XCTAssertEqual((url.path(percentEncoded: false) as NSString).standardizingPath, Self.repoPath)
             return .success(MockRepository.mock)
         }
 
