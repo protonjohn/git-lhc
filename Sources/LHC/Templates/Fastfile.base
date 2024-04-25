@@ -106,7 +106,7 @@ $secrets = {
     :appstore_api_key_id => get_secret("APPSTORE_API_KEY_ID"),
     :appstore_api_key_issuer => get_secret("APPSTORE_API_KEY_ISSUER"),
     {% endif %}
-    {% if config["train"] == "mac" %}
+    {% if config["sparkle"] %}
     :appcast_ed_key => get_secret("APPCAST_ED_KEY"),
     {% endif %}
     {% endblock %}
@@ -512,7 +512,8 @@ lane :testit do |arguments|
             :clean,
             :xcargs,
             :scheme,
-            :testplan,
+            # This broke with Xcode 15.0.1:
+            # :testplan,
             :xctestrun,
             :skip_build,
             :destination,
