@@ -308,6 +308,7 @@ private_lane :setup_codesigning do |arguments|
             team_id: $options[:team_id],
             use_automatic_signing: false,
             build_configurations: $options[:configuration],
+            code_sign_identity: $options[:code_sign_identity],
             {% endblock %}
         )
     end
