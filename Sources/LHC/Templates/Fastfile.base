@@ -87,6 +87,7 @@ $options = {
     :channel => "{{ config["channel"] }}",
     :platform => "{{ config["platform"] }}",
     :human_platform => "{{ config["human_platform"] }}",
+    :deliver_platform => "{{ config["deliver_platform"]|default:config["platform"] }}",{# this is for annoying things like tvos/appletvos #}
     :xcodeproj => "{{ config["xcodeproj"] }}",
     :output_name => "{{ config["product_name"] }}",
     :configuration => "{{ config["configuration"]|default:"Debug" }}",
@@ -557,7 +558,7 @@ lane :shipit do |arguments|
         upload_to_testflight(
             {% block testflight_upload_args %}
             ipa: $options[:ipa],
-            app_platform: $options[:platform],
+            app_platform: $options.fetch(:deliver_platform, $options[:platform]),
             distribute_external: true,
             groups: $options[:testflight_groups],
             changelog: $options[:changelog],
