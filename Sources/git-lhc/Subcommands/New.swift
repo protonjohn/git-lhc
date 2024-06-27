@@ -99,8 +99,8 @@ struct New: ParsableCommand, QuietCommand {
         }
     }
 
-    mutating func createTag(in repo: inout Repositoryish, for release: Release, options: Configuration.Options?) throws {
-        let tagName = (options?.tagPrefix ?? "") + release.versionString
+    mutating func createTag(in repo: inout Repositoryish, for release: Release, train: Trains.TrainImpl?) throws {
+        let tagName = (train?.tagPrefix ?? "") + release.versionString
         let branch = try repo.currentBranch() ?? repo.HEAD()
         let signature = try repo.defaultSignature
 
@@ -108,8 +108,8 @@ struct New: ParsableCommand, QuietCommand {
         let commit = try repo.commit(branch.oid)
 
         var message = "release: "
-        if let train = options?.train {
-            message += "\(options?.trainDisplayName ?? train) "
+        if let name = train?.name {
+            message += "\(train?.displayName ?? name) "
         }
         message += release.versionString
 
@@ -155,7 +155,7 @@ struct New: ParsableCommand, QuietCommand {
         }
     }
 
-    mutating func editNotes(for release: Release, options: Configuration.Options?) throws -> String? {
+    mutating func editNotes(for release: Release, train: Trains.TrainImpl?) throws -> String? {
         var releaseNotesContents = ""
 
         if let releaseNotes {
@@ -179,7 +179,7 @@ struct New: ParsableCommand, QuietCommand {
 
     mutating func run() throws {
         Internal.initialize()
-        let options = try parent.options?.get()
+        let train = try parent.train?.get()
         let forcedVersion = forcedVersion ?? parent.forcedVersion
 
         if buildTimestamp {
@@ -191,7 +191,7 @@ struct New: ParsableCommand, QuietCommand {
             allowDirty: true,
             untaggedReleaseChannel: parent.channel,
             forceLatestVersionTo: forcedVersion,
-            options: options
+            train: train
         )?.adding(
             prereleaseIdentifiers: prereleaseIdentifiers,
             buildIdentifiers: buildIdentifiers
@@ -199,11 +199,11 @@ struct New: ParsableCommand, QuietCommand {
             fatalError("Invariant error: no release found or created")
         }
 
-        if let notes = try editNotes(for: release, options: options), !notes.isEmpty {
+        if let notes = try editNotes(for: release, train: train), !notes.isEmpty {
             release = release.adding(notes: notes)
         }
 
-        try createTag(in: &repo, for: release, options: options)
+        try createTag(in: &repo, for: release, train: train)
     }
 }
 

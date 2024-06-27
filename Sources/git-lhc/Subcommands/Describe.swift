@@ -12,6 +12,7 @@ import Version
 import LHC
 import LHCInternal
 import Stencil
+import DictionaryCoder
 import System
 
 struct Describe: ParsableCommand {
@@ -106,12 +107,11 @@ struct Describe: ParsableCommand {
 
     mutating func run() throws {
         Internal.initialize()
-        parent.commandConfigDefines = defines.reduce(into: [:]) {
+        parent.definedConfigProperties = defines.reduce(into: [:]) {
             $0[$1.property] = $1.value
         }
 
-        var options = try parent.options?.get()
-
+        let train = try parent.train?.get()
         let repo = try Internal.openRepo(at: parent.repo)
 
         let releases: [Release]
@@ -121,14 +121,14 @@ struct Describe: ParsableCommand {
                 allowDirty: false,
                 forceLatestVersionTo: nil,
                 channel: parent.channel,
-                options: options
+                train: train
             )
         case .head:
            guard let release = try repo.latestRelease(
                 allowDirty: true,
                 untaggedReleaseChannel: parent.channel,
                 forceLatestVersionTo: nil,
-                options: options
+                train: train
             ) else {
                 releases = []
                 break
@@ -140,7 +140,7 @@ struct Describe: ParsableCommand {
                 allowDirty: false,
                 untaggedReleaseChannel: parent.channel,
                 forceLatestVersionTo: nil,
-                options: options
+                train: train
             ) else {
                 releases = []
                 break
@@ -157,10 +157,10 @@ struct Describe: ParsableCommand {
             // Future: a more efficient way of doing this, involving pruning/traversing the ingested config in
             // a smarter way
             var prefixLength: Int = 0
-            var inferredTrain: String?
+            var inferredTrain: Trains.TrainImpl?
             var inferredTagPrefix: String?
-            for (train, options) in try parent.allTrainOptions() {
-                guard let tagPrefix = options.tagPrefix else { continue }
+            for train in try parent.trains?.get() ?? [] {
+                guard let tagPrefix = train.tagPrefix else { continue }
                 if name.hasPrefix(tagPrefix),
                    prefixLength < tagPrefix.count {
                     prefixLength = tagPrefix.count
@@ -174,49 +174,56 @@ struct Describe: ParsableCommand {
                 throw DescribeReleaseError.tagIsNotAVersion(prefix: inferredTagPrefix, name)
             }
 
+            // Re-evaluate the repository configuration according to the release channel and train name.
             let inferredChannel = version.releaseChannel
             parent.channel = inferredChannel
-            parent.train = inferredTrain
+            parent.trainName = inferredTrain?.name
 
-            // Re-evaluate the repository configuration according to the release channel and train name.
-            let newConfig = try parent.config?.get().eval(
-                train: inferredTrain,
-                channel: inferredChannel,
-                define: parent.commandConfigDefines
-            )
-            options = try newConfig?.options
-            parent.evaluatedConfig = newConfig.map(Result.success)
-            parent.options = options.map(Result.success)
+            guard let trains = try Internal.loadTrains([
+                "channel": inferredChannel.rawValue
+            ]) else {
+                throw LHCError.configNotFound
+            }
+            parent.trains = .success(trains)
+            
+            guard let train = try parent.findTrain() else {
+                throw LHCError.configNotFound
+            }
+            parent.train = .success(train)
 
-            guard let release = try repo.release(exactVersion: version, options: options) else {
-                throw DescribeReleaseError.versionNotFound(version: version, train: inferredTrain)
+            guard let release = try repo.release(exactVersion: version, train: train) else {
+                throw DescribeReleaseError.versionNotFound(version: version, train: inferredTrain?.name)
             }
 
             releases = [release]
         case let .exact(version):
+            // Re-evaluate the repository configuration according to the release channel and train name.
             let inferredChannel = version.releaseChannel
             parent.channel = inferredChannel
 
-            let newConfig = try parent.config?.get().eval(
-                train: parent.train,
-                channel: inferredChannel,
-                define: parent.commandConfigDefines
-            )
-            options = try newConfig?.options
-            parent.evaluatedConfig = newConfig.map(Result.success)
-            parent.options = options.map(Result.success)
+            guard let trains = try Internal.loadTrains([
+                "channel": inferredChannel.rawValue
+            ]) else {
+                throw LHCError.configNotFound
+            }
+            parent.trains = .success(trains)
+            
+            guard let train = try parent.findTrain() else {
+                throw LHCError.configNotFound
+            }
+            parent.train = .success(train)
 
-            guard let release = try repo.release(exactVersion: version, options: options) else {
-                throw DescribeReleaseError.versionNotFound(version: version, train: parent.train)
+            guard let release = try repo.release(exactVersion: version, train: train) else {
+                throw DescribeReleaseError.versionNotFound(version: version, train: parent.trainName)
             }
 
             releases = [release]
         }
 
-        try show(releases: releases, repo: repo, options: options)
+        try show(releases: releases, repo: repo, train: train)
     }
     
-    mutating func show(releases: [Release], repo: Repositoryish, options: Configuration.Options?) throws {
+    mutating func show(releases: [Release], repo: Repositoryish, train: Trains.TrainImpl?) throws {
         let result = try parent.show(
             releases: releases,
             format: format,
@@ -248,8 +255,7 @@ struct Describe: ParsableCommand {
                 try render(
                     releases: releases,
                     repo: repo,
-                    options: options,
-                    evaluatedConfig: try? parent.evaluatedConfig?.get(),
+                    train: train,
                     outputDirectoryPath: outputPathString
                 )
             } else if templates.isEmpty {
@@ -270,8 +276,7 @@ struct Describe: ParsableCommand {
                 try render(
                     releases: releases,
                     repo: repo,
-                    options: options,
-                    evaluatedConfig: try? parent.evaluatedConfig?.get()
+                    train: train
                 )
             }
             if let string = result.string {
@@ -283,12 +288,11 @@ struct Describe: ParsableCommand {
     mutating func render(
         releases: [Release],
         repo: Repositoryish,
-        options: Configuration.Options?,
-        evaluatedConfig: Configuration.Defines?,
+        train: Trains.TrainImpl?,
         outputDirectoryPath: String = Internal.fileManager.currentDirectoryPath
     ) throws {
         var isDirectory: Bool?
-        guard var templatesDirectory = options?.templatesDir else{
+        guard var templatesDirectory = train?.templatesDirectory else {
             throw ValidationError("Templates directory is not configured.")
         }
 
@@ -305,8 +309,7 @@ struct Describe: ParsableCommand {
 
         let environment = Stencil.Environment(
             repository: repo,
-            options: options,
-            evaluatedConfig: evaluatedConfig,
+            train: train,
             urls: [URL(filePath: templatesDirectory)]
         )
 
@@ -318,7 +321,7 @@ struct Describe: ParsableCommand {
                 in: environment,
                 checklistSubdirectoryPath: checklistOutputPath?.path(percentEncoded: false),
                 repo: repo,
-                options: options
+                train: train
             ).forEach {
                 contents["\(outputDirectoryPath)/\($0.key)"] = $0.value
             }
@@ -329,7 +332,7 @@ struct Describe: ParsableCommand {
                     in: environment,
                     checklistSubdirectoryPath: checklistOutputPath?.path(percentEncoded: false),
                     repo: repo,
-                    options: options
+                    train: train
                 ).forEach {
                     contents["\(outputDirectoryPath)/\(release.versionString)/\($0.key)"] = $0.value
                 }
@@ -365,7 +368,7 @@ struct Describe: ParsableCommand {
         in environment: Stencil.Environment,
         checklistSubdirectoryPath: String?,
         repo: Repositoryish,
-        options: Configuration.Options?
+        train: Trains.TrainImpl?
     ) throws -> [String: Data] {
         var context: [String: Any] = [
             "now": Date(),
@@ -376,12 +379,14 @@ struct Describe: ParsableCommand {
             "channel": String(describing: release.version?.releaseChannel ?? .production),
         ]
 
-        if let train = release.train {
-            context["train"] = train
-        }
+        if let trainName = release.train {
+            context["train"] = trainName
 
-        if let evaluatedConfig = try parent.evaluatedConfig?.get() {
-            context["config"] = evaluatedConfig.jsonDict
+            if let train = try parent.train?.get() {
+                let encoder = DictionaryEncoder()
+                let dict = try encoder.encode(train)
+                context["config"] = dict
+            }
         }
 
         var target: ObjectID?
@@ -406,7 +411,7 @@ struct Describe: ParsableCommand {
             let tagsByTarget = try repo.tagsByTarget()
             if let otherTags = tagsByTarget[target] {
                 context["other_versions"] = otherTags.compactMap {
-                    Version(prefix: options?.tagPrefix, versionString: $0.name)
+                    Version(prefix: train?.tagPrefix, versionString: $0.name)
                 }.sorted()
             }
         }
@@ -423,7 +428,7 @@ struct Describe: ParsableCommand {
 
             try repo.releaseChecklistContents(
                 release: release,
-                options: options,
+                train: train,
                 oidFileNameLength: oidStringLength
             ).forEach {
                 contents["\(checklistSubdirectoryPath)/\($0.key)"] = $0.value
@@ -433,13 +438,25 @@ struct Describe: ParsableCommand {
             context["checklist_filenames"] = checklistNames
         }
 
+        // Make sure we don't render the same template multiple times, it's unnecessary (and the dictionary merging
+        // step after this will crash otherwise)
+        var seenTemplates = Set<String>()
+        var uniqueTemplates: [String] = []
         for template in templates {
+            guard !seenTemplates.contains(template) else { continue }
+            uniqueTemplates.append(template)
+            seenTemplates.insert(template)
+        }
+        templates = uniqueTemplates
+
+        for template in templates {
+            let renderedTemplateContents = try environment.renderRelease(
+                templateName: template,
+                release: release,
+                additionalContext: context
+            )
             contents = contents.merging(
-                try environment.renderRelease(
-                    templateName: template,
-                    release: release,
-                    additionalContext: context
-                ),
+                renderedTemplateContents,
                 uniquingKeysWith: { lhs, rhs in
                     assertionFailure("filename collision: \(lhs) and \(rhs) for the same key")
                     return rhs

@@ -9,6 +9,7 @@ import Foundation
 import XCTest
 import ArgumentParser
 
+@testable import LHCInternal
 @testable import LHC
 @testable import git_lhc
 
@@ -20,20 +21,6 @@ class FindVersionsTests: LHCTestCase {
     func invoke(_ args: [String] = []) throws {
         var findVersions = try Find.parse(args)
         try findVersions.run()
-    }
-
-    override func invokeTest() {
-        let value = Configuration.getConfig
-        Configuration.getConfig = { _ in
-            try? .success(Configuration(parsing: """
-            project_id_prefix = TEST-
-            project_id_trailer = Project-Id
-            """))
-        }
-
-        super.invokeTest()
-
-        Configuration.getConfig = value
     }
 
     func testFindingTaskIdWithPrefix() throws {
@@ -72,6 +59,20 @@ class FindVersionsTests: LHCTestCase {
     }
 
    func testFindingTaskIdWithoutPrefix() throws {
+        Internal.loadTrains = { _ in
+            [
+                Trains.TrainImpl(
+                    tagPrefix: nil,
+                    linter: Trains.LinterSettingsImpl(
+                        testProjectIdPrefix: "TEST-"
+                    ),
+                    trailers: Trains.TrailersImpl(
+                        testProjectId: "Project-Id"
+                    )
+                )
+            ]
+        }
+
         try invoke(["--format", "json", "8192"])
 
         XCTAssertEqual(errorOutput, "")

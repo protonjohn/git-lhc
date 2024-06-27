@@ -60,7 +60,7 @@ public enum LHCEnvironment: String, EnvironmentVariable {
     public var defaultValue: String? {
         switch self {
         case .configFilePath:
-            return FilePath(Internal.repoPath).appending(".lhc").string
+            return FilePath(Internal.repoPath).appending(".lhc.pkl").string
         default:
             return nil
         }

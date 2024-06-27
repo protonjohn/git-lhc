@@ -47,7 +47,7 @@ struct Attr: ParsableCommand {
                 }
             }
 
-            let attrsRef = try parent.options?.get().attrsRef
+            let attrsRef = try parent.train?.get().attrsRef
             guard let note = try? repo.note(for: target, notesRef: attrsRef),
                   let attrs = note.attributes.trailers,
                   let value = attrs[key] else {
@@ -103,7 +103,7 @@ struct Attr: ParsableCommand {
 
             var objects: [ObjectType] = []
             var values: [String] = []
-            let attrsRef = try? parent.options?.get().attrsRef
+            let attrsRef = try? parent.train?.get().attrsRef
             let tags = try repo.tagsByTarget()
             for commit in try repo.commits(from: repo.HEAD().oid, since: sinceOID) {
                 if let commitNote = try? repo.note(for: commit.oid, notesRef: attrsRef),
@@ -193,7 +193,7 @@ struct Attr: ParsableCommand {
 
             let key = attribute.key
             var message = ""
-            let attrsRefString = try parent.options?.get().attrsRef
+            let attrsRefString = try parent.train?.get().attrsRef
             if let note = try? repo.note(for: target, notesRef: attrsRefString),
                case let attributes = note.attributes,
                let trailers = attributes.trailers {
@@ -273,7 +273,7 @@ struct Attr: ParsableCommand {
                 }
             }
 
-            let attrsRefString = try parent.options?.get().attrsRef
+            let attrsRefString = try parent.train?.get().attrsRef
             guard let note = try? repo.note(for: target, notesRef: attrsRefString),
                case let attributes = note.attributes,
                let trailers = attributes.trailers,
@@ -346,7 +346,7 @@ struct Attr: ParsableCommand {
                 }
             }
 
-            let attrsRefString = try parent.options?.get().attrsRef ?? repo.defaultNotesRefName
+            let attrsRefString = try parent.train?.get().attrsRef ?? repo.defaultNotesRefName
             let log = try repo.attributeLog(key: key, target: target, refName: attrsRefString)
 
             for entry in log {

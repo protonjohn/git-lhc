@@ -10,6 +10,7 @@ import Version
 import SwiftGit2
 import LHC
 import LHCInternal
+import DictionaryCoder
 
 @main
 public struct LHC: AsyncParsableCommand {
@@ -17,9 +18,8 @@ public struct LHC: AsyncParsableCommand {
         commandName: "git-lhc",
         abstract: "A tool for git repositories that use conventional commits and semantic versioning.",
         subcommands: [
-            Config.self,
-            Check.self,
             Attr.self,
+            Check.self,
             Lint.self,
             Describe.self,
             New.self,
@@ -60,11 +60,9 @@ public struct LHC: AsyncParsableCommand {
         )
         var channel: ReleaseChannel = .environment ?? .production
 
-        lazy var train: String? = {
+        lazy var trainName: String? = {
             commandLineTrain ?? LHCEnvironment.trainName.value
         }()
-
-        var commandConfigDefines: Configuration.Defines?
 
         /// The git configuration object for the repository.
         lazy var gitConfig: Result<any Configish, Error>? = {
@@ -76,35 +74,42 @@ public struct LHC: AsyncParsableCommand {
             }
         }()
 
-        /// The parsed and ingested configuration file.
-        lazy var config: Result<Configuration.IngestedConfig, Error>? = {
-            guard let config = Configuration.getConfig(repo) else {
-                self.config = nil
-                self.options = nil
+        /// This should always get set (if needed) before evaluating `trains`, since `trains` is a lazy variable.
+        /// Sometimes you may need to 
+        var definedConfigProperties: [String: String] = [:]
+        lazy var trains: Result<[Trains.TrainImpl], Error>? = {
+            do {
+                if definedConfigProperties["channel"] == nil {
+                    definedConfigProperties["channel"] = channel.rawValue
+                }
+
+                guard let trains = try Internal.loadTrains(definedConfigProperties) else {
+                    return nil
+                }
+
+                return .success(trains)
+            } catch {
+                return .failure(error)
+            }
+        }()
+
+        mutating func findTrain() throws -> Trains.TrainImpl? {
+            guard let _trains = self.trains else { return nil }
+            let trains = try _trains.get()
+            guard trains.count > 1 else { return trains.first }
+            guard let train = trains.first(where: { $0.name == trainName }) else {
                 return nil
             }
-
-            do {
-                return try .success(config.get().ingest())
-            } catch {
-                return .failure(error)
-            }
-        }()
-
-        lazy var evaluatedConfig: Result<Configuration.Defines, Error>? = {
-            guard let config else { return nil }
-            do {
-                return try .success(config.get().eval(train: train, channel: channel, define: commandConfigDefines))
-            } catch {
-                return .failure(error)
-            }
-        }()
+            return train
+        }
 
         /// The options generated from the configuration file with the above train and channel applied.
-        lazy var options: Result<Configuration.Options, Error>? = {
-            guard let evaluatedConfig else { return nil }
+        lazy var train: Result<Trains.TrainImpl, Error>? = {
             do {
-                return try .success(evaluatedConfig.get().options)
+                guard let train = try findTrain() else {
+                    return nil
+                }
+                return .success(train)
             } catch {
                 return .failure(error)
             }
@@ -116,29 +121,8 @@ public struct LHC: AsyncParsableCommand {
                 return nil
             }
 
-            return Version(prefix: try? options?.get().tagPrefix, versionString: tagName)
+            return Version(prefix: try? train?.get().tagPrefix, versionString: tagName)
         }()
-
-        mutating func allTrainOptions() throws -> [String?: Configuration.Options] {
-            guard let options = try? options?.get() else { return [:] }
-            guard var trains = options.trains else { return [train: options] }
-
-            var result: [String: Configuration.Options] = [:]
-            if let train = options.train {
-                // If we already have a train specified at the moment, then options has already been evaluated for the
-                // current train, so save the current result.
-                result[train] = options
-                trains.removeAll { $0 == train }
-            }
-
-            for train in trains {
-                result[train] = try? config?.get()
-                    .eval(train: train, channel: channel, define: commandConfigDefines)
-                    .options
-            }
-
-            return result
-        }
 
         mutating func show(
             releases: [Release],
@@ -147,7 +131,7 @@ public struct LHC: AsyncParsableCommand {
             includeProjectIds: Bool,
             includeChecklists: Bool
         ) throws -> StringOrData {
-            let options = try? options?.get()
+            let train = try? train?.get()
             var encodedValue = releases
 
             if !includeCommitHashes || !includeProjectIds {
@@ -171,7 +155,7 @@ public struct LHC: AsyncParsableCommand {
                 result = try .init(encoder.encode(encodedValue))
             case .text:
                 let description = encodedValue
-                    .compactMap { $0.describe(options: options) }.joined(separator: "\n") + "\n"
+                    .compactMap { $0.describe(train: train) }.joined(separator: "\n") + "\n"
                 result = .init(description)
             case .version:
                 let description = encodedValue
@@ -192,7 +176,7 @@ public struct LHC: AsyncParsableCommand {
     }
 
     struct Define {
-        public let property: Configuration.Property
+        public let property: String
         public let value: String
     }
 
@@ -282,7 +266,7 @@ extension LHC.Define: ExpressibleByArgument {
         let components = argument.split(separator: "=", maxSplits: 1)
 
         self.init(
-            property: .init(rawValue: String(components.first!)),
+            property: String(components.first!),
             value: components.count > 1 ? String(components[1]) : "YES"
         )
     }
@@ -290,11 +274,14 @@ extension LHC.Define: ExpressibleByArgument {
 
 enum LHCError: Error, CustomStringConvertible {
     case invalidPath(String)
+    case configNotFound
 
     var description: String {
         switch self {
         case let .invalidPath(path):
             return "Invalid path '\(path)'."
+        case .configNotFound:
+            return "Configuration file not found at \(LHCEnvironment.configFilePath.value!)"
         }
     }
 }

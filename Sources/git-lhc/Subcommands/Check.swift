@@ -40,14 +40,14 @@ struct Check: AsyncParsableCommand {
     mutating func run() async throws {
         Internal.initialize()
 
-        parent.commandConfigDefines = [
+        parent.definedConfigProperties = [
             "checklist": checklist
         ]
 
         var repo = try Internal.openRepo(at: parent.repo)
 
-        let options = try? parent.options?.get()
-        guard var checklistDir = options?.checklistDir else {
+        let train = try? parent.train?.get()
+        guard var checklistDir = train?.checklistDirectory else {
             throw ValidationError("No checklist directory configured.")
         }
 
@@ -57,7 +57,7 @@ struct Check: AsyncParsableCommand {
 
         let checklistsURL = URL(filePath: parent.repo).appending(path: checklistDir, directoryHint: .isDirectory)
 
-        let refRoot = options?.checklistRefRootWithTrailingSlash ?? "refs/notes/checklists/"
+        let refRoot = train?.checklistRefRootWithTrailingSlash ?? "refs/notes/checklists/"
         let checklistRef = refRoot.appending(checklist)
 
         // Figure out what the checklist is being run for, and warn the user if it happens to be a tag.
@@ -66,8 +66,7 @@ struct Check: AsyncParsableCommand {
         // Render the checklist template according to the settings and the commit/tag history.
         let environment = Stencil.Environment(
             repository: repo,
-            options: options,
-            evaluatedConfig: try? parent.evaluatedConfig?.get(),
+            train: train,
             urls: [
                 checklistsURL,
                 checklistsURL.appending(path: "templates", directoryHint: .isDirectory)
@@ -79,8 +78,8 @@ struct Check: AsyncParsableCommand {
             "git-lhc": Internal.processInfo.arguments.first!,
         ]
 
-        if let evaluatedConfig = try parent.evaluatedConfig?.get() {
-            context["config"] = evaluatedConfig.jsonDict
+        if let train = try parent.train?.get() {
+            context["train"] = train
         }
 
         let checklist = try environment.renderChecklist(named: checklist, for: tip, context: context)
@@ -230,8 +229,8 @@ struct Check: AsyncParsableCommand {
 
             let head = try repo.HEAD()
             if let tags = try repo.tagsByTarget()[head.oid] {
-                if let options = try? parent.allTrainOptions() {
-                    for (_, option) in options {
+                if let trains = try? parent.trains?.get() {
+                    for train in trains {
                         for tag in tags {
                             var wasWarned = false
                             defer {
@@ -240,11 +239,11 @@ struct Check: AsyncParsableCommand {
                                 }
                             }
 
-                            guard let version = Version(prefix: option.tagPrefix, versionString: tag.name) else {
+                            guard let version = Version(prefix: train.tagPrefix, versionString: tag.name) else {
                                 continue
                             }
 
-                            if let release = try? repo.release(exactVersion: version, options: option) {
+                            if let release = try? repo.release(exactVersion: version, train: train) {
                                 let train = release.train != nil ? "\(release.train!) " : ""
                                 guard Internal.promptForConfirmation("""
                                     Warning: you are running this checklist on commit \(head.oid), but the \

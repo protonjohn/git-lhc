@@ -57,6 +57,14 @@ public struct ConventionalCommit: Codable {
                 self = .prerelease(channel: channel.rawValue)
             }
         }
+
+        init(trainBump: Trains.VersionBump) {
+            switch trainBump {
+            case .major: self = .major
+            case .minor: self = .minor
+            case .patch: self = .patch
+            }
+        }
     }
 
     public let header: Header
@@ -242,12 +250,11 @@ extension ConventionalCommit {
         trailers.filter { $0.key == name }
     }
 
-    public func versionBump(options: Configuration.Options? = nil) -> VersionBump {
+    public func versionBump(train: Trains.TrainImpl? = nil) -> VersionBump {
         if isBreaking {
             return .major
-        } else if let incrementOption = options?.categoryIncrements?[header.type],
-                  let bump = VersionBump(string: incrementOption)  {
-            return bump
+        } else if let increment = train?.versionBumps[header.type] {
+            return .init(trainBump: increment)
         } else if header.type.starts(with: "feat") {
             return .minor
         } else {
@@ -287,11 +294,11 @@ extension ConventionalCommit: CustomStringConvertible {
 }
 
 extension Array<ConventionalCommit> {
-    public func versionBump(options: Configuration.Options? = nil) -> ConventionalCommit.VersionBump {
+    public func versionBump(train: Trains.TrainImpl? = nil) -> ConventionalCommit.VersionBump {
         var result: ConventionalCommit.VersionBump = .patch
 
         for item in self {
-            let thisBump = item.versionBump(options: options)
+            let thisBump = item.versionBump(train: train)
             if thisBump > result {
                 result = thisBump
             }
@@ -303,8 +310,8 @@ extension Array<ConventionalCommit> {
         return result
     }
 
-    public func nextVersion(after versions: [Version], options: Configuration.Options? = nil) -> Version {
-        let channel = options?.channel ?? .production
+    public func nextVersion(after versions: [Version], train: Trains.TrainImpl?) -> Version {
+        let channel = train?.releaseChannel ?? .production
 
         let sorted = versions.sorted()
         let production = sorted.filter { $0.releaseChannel == .production }
@@ -313,7 +320,7 @@ extension Array<ConventionalCommit> {
             return Version(0, 0, 1)
         }
 
-        var releaseBump = last.bumping(versionBump(options: options))
+        var releaseBump = last.bumping(versionBump(train: train))
         if channel.isPrerelease {
             let channelVersions = versions.filter { $0.releaseChannel == channel }
 

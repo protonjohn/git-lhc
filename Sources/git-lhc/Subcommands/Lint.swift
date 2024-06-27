@@ -35,7 +35,7 @@ struct Lint: ParsableCommand, VerboseCommand {
 
     mutating func run() throws {
         Internal.initialize()
-        let options = try parent.options?.get()
+        let train = try parent.train?.get()
         let repo = try Internal.openRepo(at: parent.repo)
         let head = try repo.currentBranch() ?? repo.HEAD()
         if let branch = head as? Branchish {
@@ -72,7 +72,7 @@ struct Lint: ParsableCommand, VerboseCommand {
         var errors: [LintingError] = []
         for commit in commits {
             do {
-                try lint(commit: commit, branch: branch, options: options)
+                try lint(commit: commit, branch: branch, train: train)
             } catch let lintingError as LintingError {
                 errors.append(lintingError)
             }
@@ -105,7 +105,7 @@ struct Lint: ParsableCommand, VerboseCommand {
         return oid
     }
 
-    mutating func lint(commit: Commitish, branch: Branchish?, options: Configuration.Options?) throws {
+    mutating func lint(commit: Commitish, branch: Branchish?, train: Trains.TrainImpl?) throws {
         printIfVerbose("Linting commit \(commit.oid)...")
 
         let components = commit.message
@@ -116,21 +116,21 @@ struct Lint: ParsableCommand, VerboseCommand {
             throw LintingError(commit, .missingSubject)
         }
 
-        try lint(subject: subject, of: commit, options: options)
+        try lint(subject: subject, of: commit, train: train)
 
         if components.count > 1 {
-            try lint(paragraphs: components[1...], of: commit, options: options)
+            try lint(paragraphs: components[1...], of: commit, train: train)
         }
 
         let branchName = branch?.name ?? Internal.branchName
-        try lintTrailers(of: commit, branchName: branchName, options: options)
+        try lintTrailers(of: commit, branchName: branchName, train: train)
 
         printIfVerbose("No issues found.\n")
     }
 
-    mutating func lint(subject: String, of commit: Commitish, options: Configuration.Options?) throws {
+    mutating func lint(subject: String, of commit: Commitish, train: Trains.TrainImpl?) throws {
         printIfVerbose("Checking commit summary...")
-        if let subjectMaxLength = options?.subjectMaxLineLength,
+        if let subjectMaxLength = train?.linter.maxSubjectLength,
            subject.count > subjectMaxLength {
             throw LintingError(commit, .subjectTooLong(configuredMax: subjectMaxLength))
         }
@@ -148,7 +148,7 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
 
         let category = String(categorySubstring)
-        guard let categories = options?.commitCategories else {
+        guard let categories = train?.linter.requireCommitTypes else {
             return
         }
 
@@ -158,8 +158,8 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
     }
 
-    mutating func lint(paragraphs: ArraySlice<String>, of commit: Commitish, options: Configuration.Options?) throws {
-        guard let bodyMaxColumns = options?.bodyMaxLineLength else { return }
+    mutating func lint(paragraphs: ArraySlice<String>, of commit: Commitish, train: Trains.TrainImpl?) throws {
+        guard let bodyMaxColumns = train?.linter.maxBodyLineLength else { return }
 
         printIfVerbose("Checking line lengths...")
         if paragraphs.contains(where: {
@@ -169,8 +169,8 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
     }
 
-    mutating func lintTrailers(of commit: Commitish, branchName: String?, options: Configuration.Options?) throws {
-        guard let trailerName = options?.projectIdTrailerName,
+    mutating func lintTrailers(of commit: Commitish, branchName: String?, train: Trains.TrainImpl?) throws {
+        guard let trailerName = train?.trailers.projectId as? String,
               let branchName else {
             printIfVerbose("No trailer name configured or not a branch, skipping trailer linting.")
 
@@ -178,7 +178,7 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
 
         let projectIds = branchName.components(separatedBy: "/")
-            .compactMap { ProjectID(string: $0, options: options) }
+            .compactMap { ProjectID(string: $0, train: train) }
 
         printIfVerbose("Linting trailers...")
 
@@ -203,8 +203,8 @@ struct Lint: ParsableCommand, VerboseCommand {
 }
 
 extension Lint.ProjectID {
-    init?(string: String, options: Configuration.Options? = nil) {
-        guard let regexes = options?.projectIdRegexes, !regexes.isEmpty else {
+    init?(string: String, train: Trains.TrainImpl? = nil) {
+        guard let regexes = train?.linter.projectIdRegexes, !regexes.isEmpty else {
             return nil
         }
 
@@ -226,7 +226,7 @@ extension Lint.ProjectID {
                     }
                     return String(component)
                 }
-            } else if let prefix = options?.projectIdPrefix,
+            } else if let prefix = train?.linter.projectIdPrefix as? String,
                       !matchString.starts(with: prefix) {
                 self.value = prefix + matchString
                 self.components = [prefix, matchString]
