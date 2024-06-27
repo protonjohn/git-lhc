@@ -50,7 +50,6 @@ class MockFileManagerTests: XCTestCase {
 
     func testContents() {
         XCTAssertNil(fileManager.contents(atPath: "/Users/test/repo/file"))
-        XCTAssertNotNil(fileManager.contents(atPath: "/Users/test/repo/.lhc"))
     }
 
     func testCreateAndRemove() throws {

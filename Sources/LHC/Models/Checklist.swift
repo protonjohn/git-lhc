@@ -520,8 +520,8 @@ public extension Repositoryish {
     /// If an oid is specified, the results are filtered to only include checklists evaluated for the given oid.
     ///
     /// - Note: this filters all references in the repository, so try not to call it unnecessarily.
-    func checklistRefs(for oid: ObjectID? = nil, options: Configuration.Options?) throws -> [String] {
-        let refRoot = options?.checklistRefRootWithTrailingSlash ?? "refs/notes/checklists/"
+    func checklistRefs(for oid: ObjectID? = nil, train: Trains.TrainImpl?) throws -> [String] {
+        let refRoot = train?.checklistRefRootWithTrailingSlash ?? "refs/notes/checklists/"
         let refNames = try references(withPrefix: refRoot).map(\.longName)
 
         guard let oid else { return refNames }
@@ -546,7 +546,7 @@ public extension Stencil.Environment {
         for target: ObjectID,
         context: [String: Any]
     ) throws -> Checklist {
-        guard var checklistDir = options?.checklistDir else {
+        guard var checklistDir = train?.checklistDirectory else {
             throw TemplateError.notFound
         }
 
@@ -554,7 +554,7 @@ public extension Stencil.Environment {
             checklistDir.removeLast()
         }
 
-        var checklistRef = options?.checklistRefRootWithTrailingSlash ?? "refs/notes/checklists/"
+        var checklistRef = train?.checklistRefRootWithTrailingSlash ?? "refs/notes/checklists/"
 
         if !checklistRef.hasSuffix("/") {
             checklistRef.append("/")
@@ -564,8 +564,8 @@ public extension Stencil.Environment {
         var context = context
         context["object"] = target.description
 
-        if let options {
-            context["options"] = options
+        if let train {
+            context["train"] = train
         }
 
         let commits: [Commitish]
@@ -599,7 +599,7 @@ public extension Stencil.Environment {
         let changes: [ObjectID: ConventionalCommit] = commits.reduce(into: [:]) {
             var attributes: [ConventionalCommit.Trailer]?
 
-            if let attrsRef = options?.attrsRef,
+            if let attrsRef = train?.attrsRef,
                let note = try? repository.note(for: $1.oid, notesRef: attrsRef) {
                 attributes = note.attributes.trailers
             }
@@ -613,9 +613,9 @@ public extension Stencil.Environment {
         let commitOids: Set<ObjectID> = commits.reduce(into: []) { $0.insert($1.oid) }
 
         // Get all of the relevant releases, and filter by the ones falling in the determined commit range.
-        let releases = try repository.allReleases(channel: nil, options: options).filter {
+        let releases = try repository.allReleases(channel: nil, train: train).filter {
             var tagName = $0.versionString
-            if let prefix = options?.tagPrefix {
+            if let prefix = train?.tagPrefix {
                 tagName = prefix + tagName
             }
 

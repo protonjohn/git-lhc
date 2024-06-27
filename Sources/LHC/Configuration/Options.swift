@@ -1,3 +1,4 @@
+#if false
 //
 //  Options.swift
 //  
@@ -180,3 +181,4 @@ extension Configuration.IngestedConfig {
         return try eval(initialValues: defines)
     }
 }
+#endif

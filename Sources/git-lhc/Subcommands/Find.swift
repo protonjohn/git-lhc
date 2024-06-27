@@ -37,10 +37,10 @@ struct Find: ParsableCommand {
 
     mutating func run() throws {
         Internal.initialize()
-        let options = try parent.options?.get()
+        let train = try parent.train?.get()
 
         // First, add the project prefix to IDs that parse as Ints, if we have one defined.
-        if let prefix = options?.projectIdPrefix {
+        if let prefix = train?.linter.projectIdPrefix {
             taskIds = taskIds.map {
                 guard Int($0) == nil else {
                     return prefix + $0
@@ -49,16 +49,15 @@ struct Find: ParsableCommand {
             }
         }
 
-        let trailerName = options?.projectIdTrailerName
+        let trailerName = train?.trailers.projectId
         let repo = try Internal.openRepo(at: parent.repo)
 
         let taskIdSet = Set(taskIds)
-        let releases = try parent.allTrainOptions().flatMap { (keypair: (String?, Configuration.Options)) -> [Release] in
-            let (_, options) = keypair
+        let releases = try parent.trains?.get().flatMap { (train: Trains.TrainImpl) -> [Release] in
             return try repo.allReleases(
                 allowDirty: true,
                 forceLatestVersionTo: nil,
-                options: options
+                train: train
             ).filter { release in
                 // If a trailer name is set in the configuration, look for trailers first.
                 if trailerName != nil {
@@ -81,7 +80,7 @@ struct Find: ParsableCommand {
             }
         }
 
-        guard !releases.isEmpty else {
+        guard let releases, !releases.isEmpty else {
             Internal.print("No releases with the specified task ID\(taskIds.count > 1 ? "s" : "") were found.")
             throw ExitCode(1)
         }

@@ -34,6 +34,10 @@ class LintingTests: LHCTestCase {
     }
 
     func testLintingBadSubject() throws {
+        Internal.loadTrains = { _ in
+            [Trains.TrainImpl(linter: Trains.LinterSettingsImpl(requireCommitTypes: ["fix", "feat"]))]
+        }
+
         try setBranch(MockBranch.branchWithInvalidSubject)
         do {
             try invoke()
@@ -60,14 +64,24 @@ class LintingTests: LHCTestCase {
     }
 
     func testTrailers() throws {
-        Configuration.getConfig = { _ in
-            try? .success(.init(parsing: """
-            project_id_prefix = TEST-
-            project_id_trailer = Project-Id
-            project_id_regexes = ["([A-Z]{2,10}-)([0-9]{2,5})", "([0-9]{3,5})"]
-            commit_categories = ["feat", "fix", "test", "build", "ci"]
-            lint_branch_names = commitsMustMatch
-            """))
+        Internal.loadTrains = { _ in
+            [Trains.TrainImpl(
+                linter: Trains.LinterSettingsImpl(
+                    testProjectIdPrefix: "TEST-",
+                    projectIdRegexes: [
+                        "([A-Z]{2,10}-)([0-9]{2,5})",
+                        "([0-9]{3,5})"
+                    ],
+                    projectIdsInBranches: .commitsMustMatch,
+                    requireCommitTypes: [
+                        "feat",
+                        "fix",
+                        "test",
+                        "build",
+                        "ci"
+                    ]
+                )
+            )]
         }
 
         let matchingTrailerBranches: [MockBranch] = [

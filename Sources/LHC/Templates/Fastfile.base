@@ -16,10 +16,11 @@ require 'pp' # for printing options
 $repo_path = File.expand_path("#{Dir.pwd}/..")
 
 {% block header %}
-$app_identifier = "{{ config["app_identifier"] }}"
-{% if config["train"] %}
-$train = "{{ config["train"] }}"
+{% if train %}
+$app_identifier = "{{ config.build.appIdentifier }}"
+$train = "{{ train|lowercase }}"
 {% else %}
+$app_identifier = nil
 $train = nil
 {% endif %}
 
@@ -43,11 +44,7 @@ def get_or_die(options, sym)
 end
 
 def get_secret(env_var)
-    {% if config["train"] %}
-    return ENV.fetch(env_var + "_{{ config["train"]|uppercase|replace:"-","_" }}", ENV[env_var])
-    {% else %}
-    return ENV[env_var]
-    {% endif %}
+    return ENV.fetch(env_var + "_{{ train|uppercase|replace:"-","_" }}", ENV[env_var])
 end
 
 def defaults_write(namespace, key, value)
@@ -79,20 +76,27 @@ end
 
 ## Global configuration variables, based on LHC configuration values
 
+# this is for annoying things like tvos/appletvos 
+$deliver_platforms = {
+    "macos" => "macos",
+    "ios" => "ios",
+    "tvos" => "appletvos"
+}
+
 # Basic global options.
 $options = {
     {% block options %}
     :train => $train,
-    :team_id => "{{ config["team_id"] }}",
-    :channel => "{{ config["channel"] }}",
-    :platform => "{{ config["platform"] }}",
-    :human_platform => "{{ config["human_platform"] }}",
-    :deliver_platform => "{{ config["deliver_platform"]|default:config["platform"] }}",{# this is for annoying things like tvos/appletvos #}
-    :xcodeproj => "{{ config["xcodeproj"] }}",
-    :output_name => "{{ config["product_name"] }}",
-    :configuration => "{{ config["configuration"]|default:"Debug" }}",
-    :output_directory => "{{ config["output_directory"]|default:"output" }}",
-    :keychain_name => "{{ config["match_keychain_name"]|default:"fastlane" }}",
+    :team_id => "{{ config.build.teamId }}",
+    :scheme => "{{ config.build.scheme }}",
+    :channel => "{{ config.releaseChannel }}",
+    :platform => "{{ config.build.platform|lowercase }}",
+    :human_platform => "{{ config.build.platform }}",
+    :xcodeproj => "{{ config.build.xcodeproj }}",
+    :output_name => "{{ config.build.productName }}",
+    :configuration => "{{ config.build.configuration|default:"Debug" }}",
+    :output_directory => "{{ config.build.outputDirectory|default:"output" }}",
+    :keychain_name => "{{ config.build.match.keychainName|default:"fastlane" }}",
     {% endblock %}
 }
 
@@ -102,12 +106,12 @@ $secrets = {
     :match_git_url => get_secret("MATCH_GIT_URL"),
     :match_password => get_secret("MATCH_PASSWORD"),
     :match_keychain_password => get_secret("MATCH_KEYCHAIN_PASSWORD"),
-    {% if config["CI"] %}
+    {% if config.build.ci %}
     :appstore_api_key => get_secret("APPSTORE_API_KEY"),
     :appstore_api_key_id => get_secret("APPSTORE_API_KEY_ID"),
     :appstore_api_key_issuer => get_secret("APPSTORE_API_KEY_ISSUER"),
     {% endif %}
-    {% if config["sparkle"] %}
+    {% if config.distribution.sparkle %}
     :appcast_ed_key => get_secret("APPCAST_ED_KEY"),
     {% endif %}
     {% endblock %}
@@ -182,7 +186,7 @@ def stop_simulator_if_needed()
 end
 
 def sign_in_to_app_store_connect()
-    {% if config["CI"] %}
+    {% if config.build.ci %}
     api_key = get_or_die($secrets, :appstore_api_key)
     api_key_id = get_or_die($secrets, :appstore_api_key_id)
     api_key_issuer = get_or_die($secrets, :appstore_api_key_issuer)
@@ -227,21 +231,27 @@ private_lane :fetch_codesigning_info do |arguments|
         ENV["MATCH_PASSWORD"] = password
     end
 
-    unless (type = $options[:match_type])
-        export_method = get_or_die($options, :export_method)
+    # map from export method to signing type. annoying, but necessary.
+    # export method: app-store, validation, ad-hoc, package, enterprise, development, developer-id and mac-application
+    # type: appstore, adhoc, development, enterprise, developer_id, mac_installer_distribution, developer_id_installer
+    types = {
+        "ad-hoc" => "adhoc",
+        "app-store" => "appstore",
+        "development" => "development",
+        "developer-id" => "developer_id",
+    }
 
-        # map from export method to signing type. annoying, but necessary.
-        # export method: app-store, validation, ad-hoc, package, enterprise, development, developer-id and mac-application
-        # type: appstore, adhoc, development, enterprise, developer_id, mac_installer_distribution, developer_id_installer
-        types = {
-            "ad-hoc" => "adhoc",
-            "app-store" => "appstore",
-            "development" => "development",
-            "developer-id" => "developer_id",
-        }
-
-        type = types.fetch(export_method)
-    end
+    {% if config.distribution.appStore %}
+    type = "appstore"
+    {% elif config.distribution.sparkle %}
+    type = "developer_id"
+    {% elif config.distribution.custom %}
+    export_method = "{{ config.distribution.custom.exportMethod }}"
+    type = types.fetch(export_method)
+    {% else %}
+    export_method = get_or_die($options, :export_method)
+    type = types.fetch(export_method)
+    {% endif %}
 
     # Download current certs and profiles from git, and/or create them on app store connect.
     puts "Matching signing settings with targets..."
@@ -551,24 +561,24 @@ lane :shipit do |arguments|
     begin
         {% block preship %}{% endblock %}
 
-        {% if config["upload_to_testflight"] %}
+        {% if config.distribution.appStore.action == "Upload" %}
         sign_in_to_app_store_connect()
 
         {% block upload_to_testflight %}
         upload_to_testflight(
             {% block testflight_upload_args %}
             ipa: $options[:ipa],
-            app_platform: $options.fetch(:deliver_platform, $options[:platform]),
+            app_platform: $app_platforms[$options.fetch(:platform, "ios")]
             distribute_external: true,
             groups: $options[:testflight_groups],
             changelog: $options[:changelog],
             {% endblock %}
         )
         {% endblock %}
-        {% elif config["promote_testflight_release"] %}
+        {% elif config.distribution.appStore.action == "Promote" %}
         sign_in_to_app_store_connect()
         promote_testflight_release()
-        {% elif config["deliver"] %}
+        {% elif config.distribution.appStore.action == "Submit" %}
         sign_in_to_app_store_connect()
 
         {% block deliver %}
@@ -580,7 +590,7 @@ lane :shipit do |arguments|
             {% endblock %}
         )
         {% endblock %}
-        {% elif config["sparkle"] %}
+        {% elif config.distribution.sparkle %}
         {% block sparkle %}
         require 'digest'
 

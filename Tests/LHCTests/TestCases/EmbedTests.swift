@@ -166,10 +166,8 @@ class EmbedTests: LHCTestCase {
 
         let fileManager = Internal.fileManager // save FM state
 
-        Configuration.getConfig = { _ in
-            try? .success(.init(parsing: """
-            train = test
-            """))
+        Internal.loadTrains = { _ in
+            [Trains.TrainImpl(tagPrefix: nil)]
         }
 
         try replaceAll()
