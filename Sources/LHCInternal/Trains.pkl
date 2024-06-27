@@ -1,0 +1,163 @@
+// When updating this file, remember to run `pkl-gen-swift Sources/LHCInternal/Trains.pkl -o Sources/LHCInternal/Generated/`
+
+open module Trains
+
+typealias VersionBump = "Major"|"Minor"|*"Patch"
+typealias ReleaseChannel = *"alpha"|"beta"|"rc"|"production"
+typealias LintProjectIdsInBranches = *"Never"|"Always"|"CommitsMustMatch"
+
+/// Top-level properties read from configuration input.
+///
+/// These properties are defined by LHC when evaluating the configuration file, and can be cased on
+/// to provide different values depending on the environment or release channel.
+open class Properties {
+    ci: Boolean = if (read?("prop:CI") == "true") true else false
+    pipelineIdentifier: String? = read?("prop:CI_PIPELINE_ID")
+    channel: ReleaseChannel = read?("prop:channel") ?? "alpha"
+    checklist: String? = read?("prop:checklist")
+}
+
+const properties: Properties = new { }
+
+open class LinterSettings {
+    /// The prefix to use for a ticket item ID, if any.
+    ///
+    /// For example, if using Jira, the project ID prefix might be `EXAMPLE-`.
+    projectIdPrefix: String? = null
+
+    maxSubjectLength: Int? = null
+    maxBodyLineLength: Int? = null
+
+    // Future: pkl-gen-swift doesn't support the Regex type yet.
+    projectIdRegexes: Listing<String> = new {
+        "([A-Z]{2,10}-)([0-9]{2,5})"
+        "([0-9]{3,5})"
+    }
+    projectIdsInBranches: LintProjectIdsInBranches = "Never"
+
+    /// The default conventional commit types allowed for the project.
+    ///
+    /// If left set to `null`, then the linter will not reject any commits based on an unknown type.
+    requireCommitTypes: Listing<String>? = null 
+}
+
+open class MatchSettings {
+    branchName: String? = null
+    keychainName: String? = null
+}
+
+/// Settings for building the project.
+open class BuildSettings {
+    /// Whether or not the current build is being invoked from a CI context.
+    ci: Boolean = properties.ci
+    /// A unique string identifying the current CI pipeline, if any.
+    pipelineIdentifier: String? = properties.pipelineIdentifier
+    /// The scheme to use in the Xcode project.
+    scheme: String? = null
+    /// The team ID to use for signing.
+    teamId: String? = null
+    /// The team name which corresponds to the given team ID.
+    teamName: String? = null
+    /// The platform to build for (e.g., iOS, macOS, tvOS).
+    platform: String? = null
+    /// The path to the Xcode project .xcodeproj file.
+    xcodeproj: String? = null
+    /// The name of the product, usually the name of the app bundle.
+    productName: String? = null
+    /// The bundle identifier of the application.
+    appIdentifier: String? = null
+    /// The output directory to place files in.
+    outputDirectory: String? = null
+    /// Where to find the test plans in the project.
+    testplansDirectory: String? = null
+
+    /// The slack channel to announce any new builds in.
+    announceChannel: String? = null
+
+    /// Settings for use with fastlane match.
+    match: MatchSettings? = null
+}
+
+/// Settings to control app distribution via the Sparkle framework.
+open class Sparkle {
+    /// The release channel to specify in the sparkle xml file.
+    ///
+    /// More details can be found [here](https://sparkle-project.org/documentation/publishing/#channels).
+    releaseChannel: String? = if (properties.channel == "production") null else properties.channel
+
+    /// The Slack channel in which to announce the new release.
+    announceChannel: String?
+
+    /// The path to the dmg configuration file (used by the `dmgbuild` Python utility).
+    ///
+    /// This is most applicable to the macOS platform when distributing via Sparkle updates.
+    dmgConfig: String? = null
+}
+
+/// The type of action to do when interacting with App Store Connect.
+///
+/// The "Upload" action uploads a new build and publishes it to TestFlight.
+/// The "Promote" action takes an existing build with the same number, and adds it to another testing group.
+/// The "Submit" action takes an existing build with the same number, and submits it for app review.
+typealias AppStoreAction = *"Upload"|"Promote"|"Submit"
+
+/// Settings to control app distribution on the App Store.
+open class AppStore {
+    action: AppStoreAction = 
+        if (properties.channel == "alpha") "Upload" else
+        if (properties.channel == "production") "Submit" else "Promote"
+
+    /// The TestFlight group to use for the given App Store action.
+    ///
+    /// If `action` is "Submit," then this value has no effect.
+    testflightGroup: String? =
+        if (properties.channel == "alpha") "Alpha" else
+        if (properties.channel == "beta") "Public Beta" else
+        if (properties.channel == "rc") "Release Candidate" else null
+
+    /// The Slack channel in which to announce the new release.
+    announceChannel: String?
+}
+
+open class CustomDistribution {
+    exportMethod: String? = null
+}
+
+typealias DistributionSettings = Sparkle|AppStore|*CustomDistribution
+
+open class Trailers {
+    projectId: String = "Project-Id"
+    releasePipeline: String = "Release-Pipeline"
+    failedPipeline: String = "Failed-Pipeline"
+    automaticReleaseDate: String = "Automatic-Release-Date"
+    releaseImmediately: String = "Release-Immediately"
+    mergeRequest: String = "Merge-Request"
+}
+
+open class Train {
+    name: String = ""
+    displayName: String? = "LHC Build Train"
+    tagPrefix: String? = null
+    releaseChannel: ReleaseChannel = properties.channel
+
+    attrsRef: String = "refs/notes/attrs"
+    checklistsRef: String = "refs/notes/checklists"
+
+    templatesDirectory: String? = null
+    checklistDirectory: String? = null
+
+    versionBumps: Mapping<String, VersionBump> = new {
+        ["feat"] = "Minor"
+    }
+
+    linter: LinterSettings = new { }
+    build: BuildSettings? = null
+    distribution: DistributionSettings? = null
+
+    trailers: Trailers = new { }
+
+    changelogExcludedTypes: Listing<String>? = null
+    changelogTypeDisplayNames: Mapping<String, String>? = null
+}
+
+trains: Listing<Train> = new { new { } }

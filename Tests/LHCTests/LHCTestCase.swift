@@ -39,7 +39,7 @@ class LHCTestCase: XCTestCase {
         let mockRepo = MockRepository.mock
         let repoUpdated = MockRepository.repoUpdated
         let oldFileManager = Internal.fileManager
-        let getConfig = Configuration.getConfig
+        let oldLoadTrains = Internal.loadTrains
         let promptUser = Internal.promptUser
         let processInfo = Internal.processInfo
         let isInteractive = Internal.isInteractiveSession
@@ -59,6 +59,10 @@ class LHCTestCase: XCTestCase {
             return .success(MockRepository.mock)
         }
 
+        Internal.loadTrains = { _ in
+            [Trains.TrainImpl(testName: "test", tagPrefix: nil)]
+        }
+
         Internal.registerTransports = {
             
         }
@@ -75,10 +79,10 @@ class LHCTestCase: XCTestCase {
 
         super.invokeTest()
 
-        Configuration.getConfig = getConfig
         Internal.fileManager = oldFileManager
         MockRepository.mock = mockRepo
         MockRepository.repoUpdated = repoUpdated
+        Internal.loadTrains = oldLoadTrains
         Internal.openRepo = openRepo
         Internal.shell = shell
         Internal.promptUser = promptUser

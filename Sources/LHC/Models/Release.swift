@@ -82,14 +82,10 @@ public struct Release {
 /// Release channels are used to stage new releases before they are sent to the general user population. Each channel
 /// can have a different use case; for example, alpha builds may only ever be sent to internal members for testing,
 /// while beta builds get sent to a limited subset of the user population.
-public enum ReleaseChannel: String, CaseIterable, Codable {
-    case alpha
-    case beta
-    case releaseCandidate = "rc"
-    case production
-
+public typealias ReleaseChannel = Trains.ReleaseChannel
+extension ReleaseChannel {
     /// The list of recognized prerelease channels.
-    public static var prereleaseChannels: [Self] = [.alpha, .beta, .releaseCandidate]
+    public static var prereleaseChannels: [Self] = [.alpha, .beta, .rc]
 
     public var isPrerelease: Bool {
         Self.prereleaseChannels.contains(self)
@@ -166,7 +162,7 @@ extension Release: Codable {
         try container.encodeIfPresent(self.tagName, forKey: .tagName)
         try container.encode(self.changes, forKey: .changes)
         try container.encodeIfPresent(self.body, forKey: .body)
-        try container.encode(self.channel, forKey: .channel)
+        try container.encode(self.channel.rawValue, forKey: .channel)
         try container.encodeIfPresent(self.attributes, forKey: .attributes)
     }
 
@@ -314,8 +310,8 @@ extension Release {
         )
     }
 
-    public func describe(options: Configuration.Options? = nil) -> String? {
-        var result = "# \(train ?? "Version") \(versionString)\(tagName != nil ? "" : " (Not Tagged)"):\n\n"
+    public func describe(train: Trains.TrainImpl? = nil) -> String? {
+        var result = "# \(self.train ?? "Version") \(versionString)\(tagName != nil ? "" : " (Not Tagged)"):\n\n"
 
         if let body {
             result.append("\(body)\n\n")
@@ -323,7 +319,7 @@ extension Release {
 
         result.append("""
             \(changes.reduce(into: "") { result, category in
-                guard let categoryDescription = category.key.describe(options: options) else {
+                guard let categoryDescription = category.key.describe(train: train) else {
                     return
                 }
                 result += "## \(categoryDescription):\n"
@@ -338,22 +334,20 @@ extension Release {
 }
 
 extension Release.Category {
-    public func describe(options: Configuration.Options? = nil) -> String? {
-        guard let options else {
+    public func describe(train: Trains.TrainImpl? = nil) -> String? {
+        guard let train else {
             return self
         }
 
-        if options.changelogExcludedCategories?.contains(self) == true {
+        if train.changelogExcludedTypes?.contains(self) == true {
             return nil
         }
 
-        guard let index = options.commitCategories?.firstIndex(of: self),
-              options.commitCategoryDisplayNames?.count == options.commitCategories?.count,
-              let displayName = options.commitCategoryDisplayNames?[index] else {
+        guard let name = train.changelogTypeDisplayNames?[self] else {
             return self
         }
 
-        return displayName
+        return name
     }
 }
 
@@ -408,10 +402,10 @@ extension Repositoryish {
         tagName: String?
     )
 
-    private func tagsAndVersions(options: Configuration.Options?) throws -> [TaggedRelease] {
+    private func tagsAndVersions(train: Trains.TrainImpl?) throws -> [TaggedRelease] {
         let result = try allTags().compactMap { (tag: TagReferenceish) -> TaggedRelease? in
             guard let version = Version(
-                prefix: options?.tagPrefix,
+                prefix: train?.tagPrefix,
                 versionString: tag.name
             ) else { return nil }
 
@@ -466,13 +460,13 @@ extension Repositoryish {
         fromRanges ranges: [ReleaseRange],
         untaggedRangeReleaseChannel: ReleaseChannel = .production,
         forceLatestVersionTo forcedVersion: Version? = nil,
-        options: Configuration.Options? = nil
+        train: Trains.TrainImpl? = nil
     ) throws -> ([Release], badCommits: [Commitish]) {
         var versionsSoFar: [Version] = []
         var result: [Release] = []
         var badCommits: [Commitish] = []
 
-        let checklistRefNames = try? checklistRefs(options: options)
+        let checklistRefNames = try? checklistRefs(train: train)
         var objectChecklistNames: [ObjectID: [String]] = [:]
         // Prereleases can have overlapping commits, so best to save time parsing them if possible.
         var conventionalCommits: [ObjectID: ConventionalCommit] = [:]
@@ -490,7 +484,7 @@ extension Repositoryish {
             let commits: [(oid: OID, cc: ConventionalCommit)] = repoCommits.compactMap { commit in
                 do {
                     var attributes: [Trailer]?
-                    if let attrsRef = options?.attrsRef,
+                    if let attrsRef = train?.attrsRef,
                        let note = try? note(for: commit.oid, notesRef: attrsRef) {
                         attributes = note.attributes.trailers
                     }
@@ -509,7 +503,7 @@ extension Repositoryish {
                         cc = try ConventionalCommit(message: commit.message, attributes: attributes)
                         conventionalCommits[commit.oid] = cc
                     }
-                    guard let categories = options?.commitCategories else {
+                    guard let categories = train?.linter.requireCommitTypes else {
                         return (commit.oid, cc)
                     }
 
@@ -565,7 +559,7 @@ extension Repositoryish {
                     body = message
                 }
 
-                if let attrsRef = options?.attrsRef,
+                if let attrsRef = train?.attrsRef,
                    let note = try? note(for: tag.oid, notesRef: attrsRef) {
                     attributes = note.attributes.trailers
                 }
@@ -584,7 +578,7 @@ extension Repositoryish {
             let version: Version
             if let tagName,
                let taggedVersion = Version(
-                   prefix: options?.tagPrefix,
+                   prefix: train?.tagPrefix,
                    versionString: tagName
                )
             {
@@ -595,7 +589,7 @@ extension Repositoryish {
             } else if let last {
                 version = conventionalCommits.nextVersion(
                     after: versionsSoFar + [last.version],
-                    options: options
+                    train: train
                 )
             } else {
                 version = Version(major: 0, minor: 0, patch: 1)
@@ -606,21 +600,21 @@ extension Repositoryish {
                 version: version,
                 tagName: tagName,
                 objectID: tagOid ?? commits.first?.oid,
-                train: options?.trainDisplayName ?? options?.train,
+                train: train?.displayName ?? train?.name,
                 body: body,
                 trailers: trailers,
                 attributes: attributes,
                 conventionalCommits: conventionalCommits,
                 correspondingHashes: commits.map(\.oid),
                 checklistNames: objectChecklistNames,
-                projectIdTrailerName: options?.projectIdTrailerName
+                projectIdTrailerName: (train?.trailers.projectId as? String)
             ))
         }
         return (result, badCommits)
     }
 
-    public func release(exactVersion version: Version, options: Configuration.Options?) throws -> Release? {
-        let taggedReleases = try tagsAndVersions(options: options)
+    public func release(exactVersion version: Version, train: Trains.TrainImpl? = nil) throws -> Release? {
+        let taggedReleases = try tagsAndVersions(train: train)
         let index = taggedReleases.binarySearch { $0.version < version }
 
         guard 0 <= index && index < taggedReleases.count else {
@@ -647,7 +641,7 @@ extension Repositoryish {
 
         return try releases(
             fromRanges: [(lastVersion, releaseTag.object, releaseTag.tagName)],
-            options: options
+            train: train
         ).0.first
     }
 
@@ -656,10 +650,10 @@ extension Repositoryish {
         untaggedReleaseChannel: ReleaseChannel = .production,
         forceLatestVersionTo forcedVersion: Version?,
         target: ObjectID? = nil,
-        options: Configuration.Options? = nil
+        train: Trains.TrainImpl? = nil
     ) throws -> Release? {
         let head: ReferenceType = try currentBranch() ?? HEAD()
-        let taggedReleases = try tagsAndVersions(options: options)
+        let taggedReleases = try tagsAndVersions(train: train)
 
         let lastVersion = try lastReachableRelease(
             among: taggedReleases[...],
@@ -671,7 +665,7 @@ extension Repositoryish {
             let object = try object(oid)
             return try releases(
                 fromRanges: [(lastVersion, object, thisTag.name)],
-                options: options
+                train: train
             ).0.first
         } else if let thisVersion = try lastReachableRelease(
                 among: taggedReleases[...],
@@ -685,7 +679,7 @@ extension Repositoryish {
 
             return try releases(
                 fromRanges: [(lastVersion, thisVersion.object, thisVersion.tagName)],
-                options: options
+                train: train
             ).0.first
         } else if allowDirty {
             // The tag hasn't been computed yet, so we'll need to create one.
@@ -710,12 +704,12 @@ extension Repositoryish {
                 fromRanges: ranges,
                 untaggedRangeReleaseChannel: untaggedReleaseChannel,
                 forceLatestVersionTo: forcedVersion,
-                options: options
+                train: train
             ).0.last
         } else if let lastVersion {
             return try release(
                 exactVersion: lastVersion.version,
-                options: options
+                train: train
             )
         } else {
             return nil
@@ -727,10 +721,10 @@ extension Repositoryish {
         forceLatestVersionTo forcedVersion: Version? = nil,
         channel: ReleaseChannel? = .production,
         target: ObjectID? = nil,
-        options: Configuration.Options? = nil
+        train: Trains.TrainImpl? = nil
     ) throws -> [Release] {
         let target = try target ?? (currentBranch() ?? HEAD()).oid
-        var taggedReleases = try tagsAndVersions(options: options)
+        var taggedReleases = try tagsAndVersions(train: train)
 
         if let channel {
             taggedReleases = taggedReleases.filter {
@@ -754,7 +748,7 @@ extension Repositoryish {
             fromRanges: ranges.reversed(),
             untaggedRangeReleaseChannel: channel ?? .production,
             forceLatestVersionTo: forcedVersion,
-            options: options
+            train: train
         ).0
     }
 }
@@ -762,10 +756,10 @@ extension Repositoryish {
 extension Repositoryish {
     public func releaseChecklistContents(
         release: Release,
-        options: Configuration.Options?,
+        train: Trains.TrainImpl?,
         oidFileNameLength: Int = ObjectID.stringLength
     ) throws -> [String: Data] {
-        let refroot = options?.checklistRefRootWithTrailingSlash ?? "refs/notes/checklists/"
+        let refroot = train?.checklistRefRootWithTrailingSlash ?? "refs/notes/checklists/"
 
         // Place each checklist in a list corresponding to their target OID.
         var oids: [ObjectID: [String]] = [:]
@@ -821,7 +815,7 @@ extension Stencil.Environment {
             additionalContext: additionalContext
         ).reduce(into: [:]) {
             guard let contents = $1.value, let data = contents.data(using: .utf8) else {
-                let path = "\(options!.templatesDir!)/\($1.key)"
+                let path = "\(train!.templatesDirectory!)/\($1.key)"
                 $0[$1.key] = Internal.fileManager.contents(atPath: path)
                 return
             }

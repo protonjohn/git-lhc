@@ -221,7 +221,6 @@ struct MockFileManager: FileManagerish {
                         .directory(name: "repo", contents: [
                             .directory(name: ".git", contents: []),
                             .file(name: "file", contents: nil),
-                            .file(name: ".lhc", contents: Configuration.exampleContents)
                         ])
                     ])
                 ]),

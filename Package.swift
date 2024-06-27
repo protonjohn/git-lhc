@@ -25,6 +25,7 @@ let package = Package(
         .package(url: "https://github.com/almazrafi/DictionaryCoder", exact: "1.1.0"),
         .package(url: "https://github.com/stencilproject/Stencil", exact: "0.15.1"),
         .package(url: "https://github.com/apple/swift-markdown", exact: "0.3.0"),
+        .package(url: "https://github.com/apple/pkl-swift", from: "0.2.1"),
     ],
     targets: [
         .executableTarget(
@@ -49,11 +50,11 @@ let package = Package(
                 "LHCInternal",
                 "DictionaryCoder",
                 .product(name: "Markdown", package: "swift-markdown"),
-                .product(name: "Parsing", package: "swift-parsing")
+                .product(name: "Parsing", package: "swift-parsing"),
+                .product(name: "PklSwift", package: "pkl-swift"),
             ],
             resources: [
-                .process("lhc.example"),
-                .process("Templates")
+                .process("Templates"),
             ]
         ),
         .target(name: "LHCInternal",
@@ -61,7 +62,11 @@ let package = Package(
                 "Version",
                 "SwiftGit2",
                 "Yams",
-                "LHCInternalC"
+                "LHCInternalC",
+                .product(name: "PklSwift", package: "pkl-swift"),
+            ],
+            resources: [
+                .process("Trains.pkl"),
             ]
         ),
         .target(
@@ -72,7 +77,8 @@ let package = Package(
             name: "LHCTests",
             dependencies: [
                 "git-lhc",
-                .product(name: "ArgumentParser", package: "swift-argument-parser")
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "PklSwift", package: "pkl-swift"),
             ]
         )
     ]

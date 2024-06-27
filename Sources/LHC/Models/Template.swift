@@ -82,7 +82,7 @@ public class TemplateLoader: Loader, CustomStringConvertible {
             // This implementation is a bit weird because we can't rely on Bundle.module (it only gets generated if we're
             // built with SPM) and we have to use the real, non-stubbed FileManager so we can get the resource's contents
             // without conflicting with any test runs.
-            let bundle = Bundle(for: MyBundle.self)
+            let bundle = Bundle(for: LHCBundle.self)
             let paths = bundle.paths(forResourcesOfType: nil, inDirectory: nil)
 
             for path in paths {
@@ -233,7 +233,7 @@ public class TemplateExtension: Stencil.Extension {
     }
 
     func attrs(_ value: Any?, _ arguments: [Any], context: Context) throws -> Any? {
-        guard let attrsRef = options?.attrsRef else { return nil }
+        guard let attrsRef = train?.attrsRef else { return nil }
 
         let note: Note?
         switch value {
@@ -511,20 +511,17 @@ public class TemplateExtension: Stencil.Extension {
     }
 
     public let repository: Repositoryish
-    public let options: Configuration.Options?
-    public let evaluatedConfig: Configuration.Defines?
+    public let train: Trains.TrainImpl?
 
     private lazy var aliasMap: AliasMap? = try? repository.aliasMap()
     private lazy var dateFormatter = DateFormatter()
 
     public init(
         _ repository: Repositoryish,
-        options: Configuration.Options?,
-        evaluatedConfig: Configuration.Defines?
+        train: Trains.TrainImpl?
     ) {
         self.repository = repository
-        self.evaluatedConfig = evaluatedConfig
-        self.options = options
+        self.train = train
 
         super.init()
 
@@ -557,18 +554,13 @@ extension Stencil.Environment {
         templateExtension.repository
     }
 
-    var options: Configuration.Options? {
-        templateExtension.options
-    }
-
-    var evaluatedConfig: Configuration.Defines? {
-        templateExtension.evaluatedConfig
+    var train: Trains.TrainImpl? {
+        templateExtension.train
     }
 
     public init(
         repository: Repositoryish,
-        options: Configuration.Options?,
-        evaluatedConfig: Configuration.Defines?,
+        train: Trains.TrainImpl?,
         urls: [URL]
     ) {
         self = Stencil.Environment(
@@ -576,8 +568,7 @@ extension Stencil.Environment {
            extensions: [
                TemplateExtension(
                    repository,
-                   options: options,
-                   evaluatedConfig: evaluatedConfig
+                   train: train
                )
            ],
            trimBehaviour: .smart
@@ -644,3 +635,6 @@ extension Pointer: CustomStencilSubscriptable {
     }
 }
 
+/// Not used for anything except letting `Bundle` figure out where we are.
+class LHCBundle {
+}

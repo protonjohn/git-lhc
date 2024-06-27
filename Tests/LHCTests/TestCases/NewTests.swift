@@ -25,8 +25,30 @@ class NewTests: LHCTestCase {
             args.append(contentsOf: ["--train", train])
         }
 
+        Internal.loadTrains = { _ in
+            [
+                Trains.TrainImpl(
+                    tagPrefix: nil,
+                    releaseChannel: .production,
+                    linter: Trains.LinterSettingsImpl(
+                        testProjectIdPrefix: "TEST-",
+                        requireCommitTypes: [
+                                "feat",
+                                "fix",
+                                "test",
+                                "build",
+                                "ci",
+                        ]
+                    ),
+                    trailers: Trains.TrailersImpl(
+                        testProjectId: "Project-Id"
+                    )
+                )
+            ]
+        }
+
         var invocation = try invoke(args)
-        let options = try invocation.parent.options?.get()
+        let train = try invocation.parent.train?.get()
 
         XCTAssertEqual(repoUnderTest.pushes.count, 1)
         guard let first = repoUnderTest.pushes.first else {
@@ -45,27 +67,17 @@ class NewTests: LHCTestCase {
             return
         }
 
-        let expectedTagName = "refs/tags/\(options?.tagPrefix ?? "")1.0.0"
+        let expectedTagName = "refs/tags/\(train?.tagPrefix ?? "")1.0.0"
         XCTAssertEqual(name, expectedTagName)
         XCTAssertEqual(tag.target.oid, head.oid)
         
-        if let train = options?.train {
+        if let train = train?.displayName {
             XCTAssertEqual(tag.message, "release: \(train) 1.0.0")
         }
     }
 
     func testCreatingNewProdRelease() throws {
         try subtestCreatingNewProdRelease(train: nil)
-
-        Configuration.getConfig = { _ in
-            try? .success(.init(parsing: """
-            train = test
-            tag_prefix = train/
-            project_id_prefix = TEST-
-            project_id_trailer = Project-Id
-            commit_categories = ["feat", "fix", "test", "build", "ci"]
-            """))
-        }
 
         try subtestCreatingNewProdRelease(train: "test")
     }
@@ -74,9 +86,36 @@ class NewTests: LHCTestCase {
         var args = ["--push", "--channel", channel.rawValue]
         if let train {
             args.append(contentsOf: ["--train", train])
+
+            Internal.loadTrains = { _ in
+                [
+                    Trains.TrainImpl(
+                        tagPrefix: nil,
+                        releaseChannel: .init(rawValue: channel.rawValue)!,
+                        linter: Trains.LinterSettingsImpl(
+                            testProjectIdPrefix: "TEST-",
+                            requireCommitTypes: [
+                                    "feat",
+                                    "fix",
+                                    "test",
+                                    "build",
+                                    "ci",
+                            ]
+                        ),
+                        trailers: Trains.TrailersImpl(
+                            testProjectId: "Project-Id"
+                        )
+                    )
+                ]
+            }
+        } else {
+            Internal.loadTrains = { _ in
+                [Trains.TrainImpl(tagPrefix: nil, releaseChannel: .init(rawValue: channel.rawValue)!)]
+            }
         }
+
         var invocation = try invoke(args)
-        let options = try invocation.parent.options?.get()
+        let train = try invocation.parent.train?.get()
 
         XCTAssertEqual(repoUnderTest.pushes.count, 1)
         guard let first = repoUnderTest.pushes.first else {
@@ -94,7 +133,7 @@ class NewTests: LHCTestCase {
             XCTFail("Could not get current branch.")
             return invocation
         }
-        let expectedTagName = "refs/tags/\(options?.tagPrefix ?? "")1.0.0-\(channel.rawValue).\(prereleaseBuild)"
+        let expectedTagName = "refs/tags/\(train?.tagPrefix ?? "")1.0.0-\(channel.rawValue).\(prereleaseBuild)"
         XCTAssertEqual(name, expectedTagName)
         XCTAssertEqual(tag.target.oid, head.oid)
 
@@ -141,25 +180,39 @@ class NewTests: LHCTestCase {
             MockRepository.mock = oldRepo
         }
 
-        let train = "test"
-        Configuration.getConfig = { _ in
-            try? .success(.init(parsing: """
-            train = \(train)
-            tag_prefix = train/
-            commit_categories = ["feat", "fix", "test", "build", "ci"]
-            """))
+        let trainName = "test"
+        Internal.loadTrains = { _ in
+            [
+                Trains.TrainImpl(
+                    testName: trainName,
+                    tagPrefix: nil,
+                    linter: Trains.LinterSettingsImpl(
+                        testProjectIdPrefix: "VPNAPPL-",
+                        requireCommitTypes: [
+                                "feat",
+                                "fix",
+                                "test",
+                                "build",
+                                "ci",
+                        ]
+                    ),
+                    trailers: Trains.TrailersImpl(
+                        testProjectId: "Project-Id"
+                    )
+                )
+            ]
         }
 
         for channel in ReleaseChannel.prereleaseChannels {
-            var invocation = try subtestCreatingPreleaseForVersion(train: train, channel: channel)
-            let options = try invocation.parent.options?.get()
+            var invocation = try subtestCreatingPreleaseForVersion(train: trainName, channel: channel)
+            let train = try invocation.parent.train?.get()
 
             let oldRepo = MockRepository.mock
             var repo = oldRepo
-            _ = try commitAndTag(repo: &repo, tagName: "\(options?.tagPrefix ?? "")1.0.0-\(channel.rawValue).1")
+            _ = try commitAndTag(repo: &repo, tagName: "\(train?.tagPrefix ?? "")1.0.0-\(channel.rawValue).1")
 
             MockRepository.mock = repo
-            _ = try subtestCreatingPreleaseForVersion(train: train, channel: channel, prereleaseBuild: "2")
+            _ = try subtestCreatingPreleaseForVersion(train: trainName, channel: channel, prereleaseBuild: "2")
             MockRepository.mock = oldRepo
         }
     }
