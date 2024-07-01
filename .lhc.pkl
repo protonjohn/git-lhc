@@ -1,0 +1,25 @@
+extends "lhc:///Trains.pkl"
+
+trains = new {
+    new {
+        name = "lhc"
+        displayName = "Git LHC"
+
+        linter = new LinterSettings {
+            projectIdsInBranches = "Never"
+            requireCommitTypes = new Listing {
+                "feat"
+                "fix"
+                "test"
+                "refactor"
+                "build"
+                "doc"
+                "ci"
+            }
+            maxSubjectLength = 72
+        }
+
+        templatesDirectory = "Integration/Templates"
+        checklistDirectory = "Integration/Checklists"
+    }
+}

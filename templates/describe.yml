@@ -52,6 +52,7 @@ spec:
 
       $[[ inputs.predescribe ]]
 
+      set -x
       if [ -n "$CI_COMMIT_TAG" ]; then
           $[[ inputs.cmd_prefix ]]git-lhc describe \
             --define 'CI_COMMIT_TAG=${CI_COMMIT_TAG}' \
