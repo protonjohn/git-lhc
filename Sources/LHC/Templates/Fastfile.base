@@ -130,7 +130,7 @@ $unzipped_build_products = false
 def initialize(arguments)
     {% block initialize %}
     $options = $options.merge(arguments) # allow overrides from the command line
-    $options[:use_automatic_signing] = (not $secrets[:match_keychain_password] and not arguments[:use_automatic_signing])
+    $options[:use_automatic_signing] = (not $secrets[:match_keychain_password] and arguments[:use_automatic_signing] != nil)
     {% endblock %}
 
     # A string-indexed hash of bundle identifiers, mapping to their associated build targets.
@@ -241,17 +241,19 @@ private_lane :fetch_codesigning_info do |arguments|
         "developer-id" => "developer_id",
     }
 
-    {% if config.distribution.appStore %}
-    type = "appstore"
-    {% elif config.distribution.sparkle %}
-    type = "developer_id"
-    {% elif config.distribution.custom %}
-    export_method = "{{ config.distribution.custom.exportMethod }}"
-    type = types.fetch(export_method)
-    {% else %}
-    export_method = get_or_die($options, :export_method)
-    type = types.fetch(export_method)
-    {% endif %}
+    type = nil
+    if (export_method = get_or_die($options, :export_method))
+        type = types.fetch(export_method)
+    else
+        {% if config.distribution.appStore %}
+        type = "appstore"
+        {% elif config.distribution.sparkle %}
+        type = "developer_id"
+        {% elif config.distribution.custom %}
+        export_method = "{{ config.distribution.custom.exportMethod }}"
+        type = types.fetch(export_method)
+        {% endif %}
+    end
 
     # Download current certs and profiles from git, and/or create them on app store connect.
     puts "Matching signing settings with targets..."
