@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>{% block bundle_name %}{{ config["train"]|default:"Bundle" }}{% endblock %}</string>
+	<string>{% block bundle_name %}{{ train }}{% endblock %}</string>
 	<key>CFBundleDisplayName</key>
-	<string>{% block display_name %}{{ config["train"]|default:"Bundle" }}{% endblock %}</string>
+	<string>{% block display_name %}{{ train }}{% endblock %}</string>
 	<key>CFBundleIdentifier</key>
-	<string>{% block bundle_id %}{{ config["app_identifier"]|default:"org.example.app" }}{% endblock %}</string>
+	<string>{% block bundle_id %}{{ config.build.appIdentifier }}.build-description{% endblock %}</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>{% block bundle_region %}en{% endblock %}</string>
 	<key>CFBundlePackageType</key>

@@ -220,9 +220,12 @@ extension Trains.SparkleImpl: Encodable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: PklCodingKey.self)
         
-        try container.encode(releaseChannel, forKey: PklCodingKey(string: "releaseChannel"))
-        try container.encode(announceChannel, forKey: PklCodingKey(string: "announceChannel"))
+        try container.encode(appcastChannel, forKey: PklCodingKey(string: "releaseChannel"))
+        try container.encode(announceForum, forKey: PklCodingKey(string: "announceChannel"))
         try container.encode(dmgConfig, forKey: PklCodingKey(string: "dmgConfig"))
+        try container.encode(maximumSystemVersion, forKey: PklCodingKey(string: "maximumSystemVersion"))
+        try container.encode(minimumSystemVersion, forKey: PklCodingKey(string: "minimumSystemVersion"))
+        try container.encode(phasedRolloutInterval, forKey: PklCodingKey(string: "phasedRolloutInterval"))
     }
 }
 
