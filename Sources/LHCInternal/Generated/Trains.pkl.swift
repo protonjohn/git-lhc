@@ -114,11 +114,17 @@ public protocol Trains_Trailers: PklRegisteredType, DynamicallyEquatable, Hashab
 }
 
 public protocol Trains_Sparkle: PklRegisteredType, DynamicallyEquatable, Hashable {
-    var releaseChannel: String? { get }
+    var appcastChannel: String? { get }
 
-    var announceChannel: String? { get }
+    var announceForum: String? { get }
 
     var dmgConfig: String? { get }
+
+    var minimumSystemVersion: String? { get }
+
+    var maximumSystemVersion: String? { get }
+
+    var phasedRolloutInterval: Int? { get }
 }
 
 public protocol Trains_AppStore: PklRegisteredType, DynamicallyEquatable, Hashable {
@@ -638,20 +644,41 @@ extension Trains {
         /// The release channel to specify in the sparkle xml file.
         ///
         /// More details can be found [here](https://sparkle-project.org/documentation/publishing/#channels).
-        public var releaseChannel: String?
+        public var appcastChannel: String?
 
-        /// The Slack channel in which to announce the new release.
-        public var announceChannel: String?
+        /// The forum in which to announce the release (slack channel, mailing list, etc)
+        public var announceForum: String?
 
         /// The path to the dmg configuration file (used by the `dmgbuild` Python utility).
         ///
         /// This is most applicable to the macOS platform when distributing via Sparkle updates.
         public var dmgConfig: String?
 
-        public init(releaseChannel: String?, announceChannel: String?, dmgConfig: String?) {
-            self.releaseChannel = releaseChannel
-            self.announceChannel = announceChannel
+        /// The minimum system version supported by the update binary. (Should mirror deployment target)
+        public var minimumSystemVersion: String?
+
+        /// The maximum system version supported by the update binary. (Unless backporting, should be null)
+        public var maximumSystemVersion: String?
+
+        /// The phased rollout interval, in seconds, as specified by Sparkle's documentation page.
+        ///
+        /// See: https://sparkle-project.org/documentation/publishing/#phased-group-rollouts
+        public var phasedRolloutInterval: Int?
+
+        public init(
+            appcastChannel: String?,
+            announceForum: String?,
+            dmgConfig: String?,
+            minimumSystemVersion: String?,
+            maximumSystemVersion: String?,
+            phasedRolloutInterval: Int?
+        ) {
+            self.appcastChannel = appcastChannel
+            self.announceForum = announceForum
             self.dmgConfig = dmgConfig
+            self.minimumSystemVersion = minimumSystemVersion
+            self.maximumSystemVersion = maximumSystemVersion
+            self.phasedRolloutInterval = phasedRolloutInterval
         }
     }
 

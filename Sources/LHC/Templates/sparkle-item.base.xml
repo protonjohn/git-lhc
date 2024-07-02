@@ -7,19 +7,19 @@
     <sparkle:version>{% block version %}{{ version }}{% endblock %}</sparkle:version>
     <sparkle:shortVersionString>{% block short_version %}{{ short_version }}{% endblock %}</sparkle:version>
     <pubDate>{% block publish_date %}{{ now|format_date:"EEEE, d MMM yyyy HH:mm:ss Z" }}{% endblock %}</pubDate>
-    {% if config["appcast_minimum_system_version"] %}
-    <sparkle:minimumSystemVersion>{{ config["appcast_minimum_system_version"] }}</sparkle:minimumSystemVersion>
+    {% if config.distribution.sparkle.minimumSystemVersion %}
+    <sparkle:minimumSystemVersion>{{ config.distribution.sparkle.minimumSystemVersion }}</sparkle:minimumSystemVersion>
     {% endif %}
-    {% if config["appcast_maximum_system_version"] %}
-    <sparkle:maximumSystemVersion>{{ config["appcast_maximum_system_version"] }}</sparkle:maximumSystemVersion>
+    {% if config.distribution.sparkle.maximumSystemVersion %}
+    <sparkle:maximumSystemVersion>{{ config.distribution.sparkle.maximumSystemVersion }}</sparkle:maximumSystemVersion>
     {% endif %}
-    {% if config["appcast_channel"] %}
-    <sparkle:channel>{{ config["appcast_channel"] }}</sparkle:channel>
+    {% if config.distribution.sparkle.appcastChannel %}
+    <sparkle:channel>{{ config.distribution.sparkle.appcastChannel }}</sparkle:channel>
     {% endif %}
-    {% if config["appcast_rollout_interval"] %}
-    <sparkle:phasedRolloutInterval>{{ config["appcast_rollout_interval"] }}</sparkle:phasedRolloutInterval>
+    {% if config.distribution.sparkle.phasedRolloutInterval %}
+    <sparkle:phasedRolloutInterval>{{ config.distribution.sparkle.phasedRolloutInterval }}</sparkle:phasedRolloutInterval>
     {% endif %}
-    {% if target|attrs:config["release_immediately_trailer"] %}
+    {% if target|attrs:config.trailers.releaseImmediately %}
     <sparkle:criticalUpdate></sparkle:criticalUpdate>
     {% endif %}
     <description>

@@ -83,15 +83,25 @@ open class Sparkle {
     /// The release channel to specify in the sparkle xml file.
     ///
     /// More details can be found [here](https://sparkle-project.org/documentation/publishing/#channels).
-    releaseChannel: String? = if (properties.channel == "production") null else properties.channel
+    appcastChannel: String? = if (properties.channel == "production") null else properties.channel
 
-    /// The Slack channel in which to announce the new release.
-    announceChannel: String?
+    /// The forum in which to announce the release (slack channel, mailing list, etc)
+    announceForum: String?
 
     /// The path to the dmg configuration file (used by the `dmgbuild` Python utility).
     ///
     /// This is most applicable to the macOS platform when distributing via Sparkle updates.
     dmgConfig: String? = null
+
+    /// The minimum system version supported by the update binary. (Should mirror deployment target)
+    minimumSystemVersion: String? = null
+    /// The maximum system version supported by the update binary. (Unless backporting, should be null)
+    maximumSystemVersion: String? = null
+
+    /// The phased rollout interval, in seconds, as specified by Sparkle's documentation page.
+    ///
+    /// See: https://sparkle-project.org/documentation/publishing/#phased-group-rollouts
+    phasedRolloutInterval: Int? = null
 }
 
 /// The type of action to do when interacting with App Store Connect.
