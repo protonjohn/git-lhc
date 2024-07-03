@@ -416,10 +416,10 @@ struct Describe: ParsableCommand {
             }
         }
 
-        let oidStringLength = try ObjectID.minimumLength(
+        let oidStringLength = (try? ObjectID.minimumLength(
             toLosslesslyRepresent: release.changes.flatMap(\.value).map(\.commitHash),
             initialMinimum: 6
-        )
+        )) ?? ObjectID.stringLength
         context["oid_string_length"] = oidStringLength
 
         var contents: [String: Data] = [:]
