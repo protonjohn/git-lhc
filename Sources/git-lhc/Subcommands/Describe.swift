@@ -220,7 +220,11 @@ struct Describe: ParsableCommand {
             releases = [release]
         }
 
-        try show(releases: releases, repo: repo, train: train)
+        try show(
+            releases: releases,
+            repo: repo,
+            train: parent.train?.get() // value may have changed from the above step
+        )
     }
     
     mutating func show(releases: [Release], repo: Repositoryish, train: Trains.TrainImpl?) throws {
