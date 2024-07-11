@@ -44,7 +44,7 @@ def get_or_die(options, sym)
 end
 
 def get_secret(env_var)
-    return ENV.fetch(env_var + "_{{ train|uppercase|replace:"-","_" }}", ENV[env_var])
+    return ENV.fetch(env_var + "_{{ config.name|uppercase|replace:"-","_" }}", ENV[env_var])
 end
 
 def defaults_write(namespace, key, value)
