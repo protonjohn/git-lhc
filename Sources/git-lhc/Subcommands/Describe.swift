@@ -177,11 +177,10 @@ struct Describe: ParsableCommand {
             // Re-evaluate the repository configuration according to the release channel and train name.
             let inferredChannel = version.releaseChannel
             parent.channel = inferredChannel
+            parent.definedConfigProperties["channel"] = inferredChannel.rawValue
             parent.trainName = inferredTrain?.name
 
-            guard let trains = try Internal.loadTrains([
-                "channel": inferredChannel.rawValue
-            ]) else {
+            guard let trains = try Internal.loadTrains(parent.definedConfigProperties) else {
                 throw LHCError.configNotFound
             }
             parent.trains = .success(trains)
@@ -200,10 +199,9 @@ struct Describe: ParsableCommand {
             // Re-evaluate the repository configuration according to the release channel and train name.
             let inferredChannel = version.releaseChannel
             parent.channel = inferredChannel
+            parent.definedConfigProperties["channel"] = inferredChannel.rawValue
 
-            guard let trains = try Internal.loadTrains([
-                "channel": inferredChannel.rawValue
-            ]) else {
+            guard let trains = try Internal.loadTrains(parent.definedConfigProperties) else {
                 throw LHCError.configNotFound
             }
             parent.trains = .success(trains)
