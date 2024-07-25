@@ -590,7 +590,7 @@ def interpret_code_coverage()
 
     puts "Converting json to cobertura format..."
     # Convert test coverage report to cobertura format for gitlab to understand
-    result = `mint run -m "#{$mintfile}" xcodecoverageconverter generate #{coverage_report_file} "#{test_output_directory}/cobertura.xml" cobertura-xml#{exclude}`
+    result = `xcc generate #{coverage_report_file} "#{test_output_directory}/cobertura.xml" cobertura-xml#{exclude}`
     unless $?.success?
         die "Unable to convert code coverage file to cobertura format: #{result}"
     end
