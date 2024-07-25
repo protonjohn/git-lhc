@@ -1,0 +1,63 @@
+{% block announce_release_job_name %}cleanup:announce:{{ config.name }}:release{% endblock %}:
+  {% block announce_release_header %}
+  {% endblock %}
+  variables:
+    {% block announce_release_vars %}
+    GIT_SUBMODULE_STRATEGY: none
+    GIT_DEPTH: 1
+    LHC: git-lhc
+    {%- endblock +%}
+  stage: {%+ block announce_release_stage %}cleanup{% endblock +%}
+  tags:
+    {% block announce_release_tags -%}
+    - announce-runner
+    {%- endblock %}
+  script: 
+    {% block announce_release_script %}
+    - |
+      {%+ filter indent:6 %}{% include "gitlab-pipeline-init.base.sh" %}{% endfilter %}
+    - fastlane announceit "slack_filename:$DESCRIBE_DIR/release/slack-message.txt"
+    {% if not target|attrs:config.trailers.releasePipeline %}
+    - git fetch origin '+refs/notes/*:refs/notes/*'
+    - $LHC attr --train "{{ config.name }}" add '{{ config.trailers.releasePipeline }}={{ config.build.ci.pipelineId }}'
+    - git push origin 'refs/notes/*'
+    {% endif %}
+    {% endblock %}
+  needs:
+    {% block announce_release_needs -%}
+    - pipeline: {%+ block parent_pipeline_id %}$PARENT_PIPELINE_ID{% endblock +%}
+      job: '{% block parent_job_name %}prepare{% endblock %}'
+    {%- endblock %}
+{% block announce_release_footer %}
+{% endblock %}
+
+{% block announce_failure_job_name %}cleanup:announce:{{ config.name }}:failure{% endblock %}:
+  {% block announce_failure_header %}
+  {% endblock %}
+  stage: {%+ block announce_failure_stage %}{{ block.announce_release_stage }}{% endblock +%}
+  tags:
+    {% block announce_failure_tags %}
+{{ block.announce_release_tags }}
+    {%- endblock %}
+  variables:
+    {% block announce_failure_vars %}
+{{ block.announce_release_vars }}
+    {% endblock %}
+  dependencies: []
+  script: 
+    - |
+      ATTR_ARGS=("{{ config.trailers.failedPipeline }}=$PARENT_PIPELINE_ID")
+
+      # If this pipeline is specifically for a tag, then make sure the attribute is added to the tag object if possible,
+      # instead of the commit that the tag is pointing to.
+      if [ -n "$CI_COMMIT_TAG" ]; then
+          ATTR_ARGS+=("$CI_COMMIT_TAG")
+      fi
+
+      git fetch origin '+refs/notes/*:refs/notes/*'
+      $LHC attr --train "{{ config.name }}" add "${ATTR_ARGS[@]}"
+      git push origin 'refs/notes/*'
+  when: on_failure
+{% block announce_failure_footer %}
+{% endblock %}
+

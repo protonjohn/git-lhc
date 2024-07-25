@@ -48,40 +48,44 @@ extension FileManagerish {
         try createDirectory(atPath: path, withIntermediateDirectories: createIntermediates, attributes: nil)
     }
 
-    /// editFile: Spawn an editor session if detected to be running in a terminal.
-    @available(*, noasync, message: "This function is not available from an async context.")
-    public mutating func editFile(_ editableString: String, temporaryFileName: String? = nil) throws -> String? {
-        let tempFilePath = try tempFile(contents: editableString.data(using: .utf8), fileName: temporaryFileName).path(percentEncoded: false)
-
-        let pointer: UnsafeMutablePointer<Result<Int32, Error>?> = .allocate(capacity: 1)
-        pointer.initialize(to: nil)
-        defer { pointer.deallocate() }
-
-        let group = DispatchGroup()
-        group.enter()
+    public mutating func editFileHelper(
+        _ editableString: String,
+        tempFilePath: String,
+        completion: @escaping (Result<Int32, Error>
+    ) -> Void) {
         Task.detached {
             do {
                 for await event in try Internal.shell.run(
                     command: "\(Internal.editor) \(tempFilePath)"
                 ) {
                     guard case .success(.exit(let code)) = event else { continue }
-
-                    pointer.pointee = .success(code)
-                    break
+                    completion(.success(code))
+                    return
                 }
             } catch {
-                pointer.pointee = .failure(error)
+                completion(.failure(error))
+                return
             }
+        }
+    }
+
+    /// editFile: Spawn an editor session if detected to be running in a terminal.
+    @available(*, noasync, message: "This function is not available from an async context.")
+    public mutating func editFile(_ editableString: String, temporaryFileName: String? = nil) throws -> String? {
+        let tempFilePath = try tempFile(contents: editableString.data(using: .utf8), fileName: temporaryFileName).path(percentEncoded: false)
+
+        let group = DispatchGroup()
+        group.enter()
+
+        var result: Result<Int32, Error>?
+        editFileHelper(editableString, tempFilePath: tempFilePath) {
+            result = $0
             group.leave()
         }
 
         group.wait()
         defer {
             try? removeItem(atPath: tempFilePath)
-        }
-
-        guard let result = pointer.pointee else {
-            return nil
         }
 
         switch result {
@@ -92,6 +96,8 @@ extension FileManagerish {
             return string
         case .failure(let error):
             throw error
+        case nil:
+            return nil
         }
     }
 

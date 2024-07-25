@@ -11,13 +11,32 @@ typealias LintProjectIdsInBranches = *"Never"|"Always"|"CommitsMustMatch"
 /// These properties are defined by LHC when evaluating the configuration file, and can be cased on
 /// to provide different values depending on the environment or release channel.
 open class Properties {
-    ci: Boolean = if (read?("prop:CI") == "true") true else false
-    pipelineIdentifier: String? = read?("prop:CI_PIPELINE_ID")
-    channel: ReleaseChannel = read?("prop:channel") ?? "alpha"
+    ci: Boolean = if (read?("env:CI") == "true") true else false
+    channel: ReleaseChannel = read?("prop:channel") ?? "production"
     checklist: String? = read?("prop:checklist")
 }
 
 const properties: Properties = new { }
+
+open class PipelineProperties {
+    pipelineId: String? = read?("env:CI_PIPELINE_ID") ?? read?("env:GITHUB_RUN_ID")
+    jobId: String? = read?("env:CI_JOB_ID") ?? read?("env:GITHUB_JOB")
+
+    refSlug: String? = read?("env:CI_COMMIT_REF_SLUG") ?? read?("env:GITHUB_REF_SLUG_URL")
+    refName: String? = read?("env:CI_MERGE_REQUEST_SOURCE_BRANCH_NAME") ??
+        read?("env:CI_COMMIT_BRANCH") ??
+        read?("env:CI_COMMIT_REF_NAME") ??
+        read?("env:GITHUB_REF_NAME")
+    tagName: String? = read?("env:CI_COMMIT_TAG") ??
+        if (read?("env:GITHUB_REF_TYPE") == "tag") read?("env:GITHUB_REF_NAME")
+        else null
+
+    pagesUrl: String? = read?("env:CI_PAGES_URL")
+    eventType: String? = read?("env:CI_PIPELINE_SOURCE") ?? read?("env:GITHUB_EVENT_NAME")
+
+    defaultBranch: String? = read?("env:CI_DEFAULT_BRANCH")
+    userProperties: Mapping<String, String>? = null
+}
 
 open class LinterSettings {
     /// The prefix to use for a ticket item ID, if any.
@@ -49,9 +68,7 @@ open class MatchSettings {
 /// Settings for building the project.
 open class BuildSettings {
     /// Whether or not the current build is being invoked from a CI context.
-    ci: Boolean = properties.ci
-    /// A unique string identifying the current CI pipeline, if any.
-    pipelineIdentifier: String? = properties.pipelineIdentifier
+    ci: PipelineProperties? = if (properties.ci) new PipelineProperties { } else null
     /// The scheme to use in the Xcode project.
     scheme: String? = null
     /// The team ID to use for signing.
@@ -70,12 +87,24 @@ open class BuildSettings {
     outputDirectory: String? = null
     /// Where to find the test plans in the project.
     testplansDirectory: String? = null
+    /// The different build configurations available for the product.
+    ///
+    /// This can be used to build multiple variants of an application. For example, one configuration might be used
+    /// for Staging, or used for testing app updates. It might be desirable to build all variants on CI, or a subset
+    /// of them depending on the defined release channel.
+    configurations: Listing<String> = new Listing { "Release" }
 
-    /// The slack channel to announce any new builds in.
-    announceChannel: String? = null
+    /// The path to the dmg configuration file (used by the `dmgbuild` Python utility).
+    ///
+    /// This is most applicable to the macOS platform, but can be used for others as well.
+    dmgConfigPath: String? = null
+
+    /// The forum in which to announce the build/test results (slack channel, mailing list, etc)
+    announceForum: String? = null
 
     /// Settings for use with fastlane match.
     match: MatchSettings? = null
+    userProperties: Mapping<String, String>? = null
 }
 
 /// Settings to control app distribution via the Sparkle framework.
@@ -88,20 +117,17 @@ open class Sparkle {
     /// The forum in which to announce the release (slack channel, mailing list, etc)
     announceForum: String?
 
-    /// The path to the dmg configuration file (used by the `dmgbuild` Python utility).
-    ///
-    /// This is most applicable to the macOS platform when distributing via Sparkle updates.
-    dmgConfig: String? = null
-
     /// The minimum system version supported by the update binary. (Should mirror deployment target)
     minimumSystemVersion: String? = null
     /// The maximum system version supported by the update binary. (Unless backporting, should be null)
     maximumSystemVersion: String? = null
 
+
     /// The phased rollout interval, in seconds, as specified by Sparkle's documentation page.
     ///
     /// See: https://sparkle-project.org/documentation/publishing/#phased-group-rollouts
     phasedRolloutInterval: Int? = null
+    userProperties: Mapping<String, String>? = null
 }
 
 /// The type of action to do when interacting with App Store Connect.
@@ -122,15 +148,17 @@ open class AppStore {
     /// If `action` is "Submit," then this value has no effect.
     testflightGroup: String? =
         if (properties.channel == "alpha") "Alpha" else
-        if (properties.channel == "beta") "Public Beta" else
+        if (properties.channel == "beta") "Beta" else
         if (properties.channel == "rc") "Release Candidate" else null
 
-    /// The Slack channel in which to announce the new release.
-    announceChannel: String?
+    /// The forum in which to announce the release (slack channel, mailing list, etc)
+    announceForum: String?
+    userProperties: Mapping<String, String>? = null
 }
 
 open class CustomDistribution {
     exportMethod: String? = null
+    userProperties: Mapping<String, String>? = null
 }
 
 typealias DistributionSettings = Sparkle|AppStore|*CustomDistribution
@@ -168,6 +196,7 @@ open class Train {
 
     changelogExcludedTypes: Listing<String>? = null
     changelogTypeDisplayNames: Mapping<String, String>? = null
+    userProperties: Mapping<String, String>? = null
 }
 
 trains: Listing<Train> = new { new { } }

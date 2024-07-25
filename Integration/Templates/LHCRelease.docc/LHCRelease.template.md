@@ -13,15 +13,15 @@
     @Tab("{{ category }}") {
         | Commit | Summary |
         |--------|---------|
-        {% for change in changes %}| `{{ change.commitHash|prefix:oid_string_length }}` | {% if change.scope %}change.scope: {% endif %}{{ change.summary }} |
+        {% for change in changes %}| `{{ change.commitHash|prefix:oidStringLength }}` | {% if change.scope %}change.scope: {% endif %}{{ change.summary }} |
         {% endfor %}
     }
 {% endfor %}
 ## Topics
-{% if checklist_filenames %}
+{% if checklistFilenames %}
 ### Checklists
-{% for filename in checklist_filenames %}
-- <article:{{ filename }}>
+{% for filename in checklistFilenames %}
+- <[article](article):{{ filename }}>
 {% endfor %}
 {% endif %}
 }

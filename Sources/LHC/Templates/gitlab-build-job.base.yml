@@ -1,0 +1,58 @@
+{% block build_job_name %}build:{{ config.name }}:all{% endblock %}:
+{% block build_header %}
+{% endblock %}
+  stage: {%+ block build_stage %}build{% endblock +%}
+  tags:
+    {% block build_tags %}
+    - build-runner
+    {% endblock %}
+  {% block build_matrix %}
+  parallel:
+    matrix:
+      - TARGET: app
+        CONFIGURATION: [{% block build_app_configurations %}Release{% endblock %}]
+      - TARGET: tests
+        CONFIGURATION: [{% block build_test_configurations %}Debug{% endblock %}]
+  {% endblock %}
+  script:
+    {% block build_script %}
+    - |
+      {%+ filter indent:6 %}{% include "gitlab-pipeline-init.base.sh" %}{% endfilter %}
+    - |
+      # Building output in {%+ block artifacts_dir %}{{ config.build.outputDirectory }}/$CONFIGURATION{% endblock %}...
+      FASTLANE_ARGS=(
+        {% block fastlane_build_args %}
+        "result_bundle:true"
+        "configuration:${CONFIGURATION}"
+        "buildlog_path:{{ block.artifacts_dir }}"
+        "output_directory:{{ block.artifacts_dir }}"
+        "result_bundle_path:{{ block.artifacts_dir }}"
+        "derived_data_path:$DERIVED_DATA_PATH"
+        "disable_package_automatic_updates:true"
+        {% endblock %}
+      )
+      case "$TARGET" in
+        app) fastlane buildit "${FASTLANE_ARGS[@]}" ;;
+        tests) fastlane testit build_for_testing:true "${FASTLANE_ARGS[@]}" ;;
+        *) exit 1 ;;
+      esac
+    {% endblock %}
+  needs:
+    {% block build_job_needs %}
+    - pipeline: {%+ block parent_pipeline_id %}$PARENT_PIPELINE_ID{% endblock +%}
+      job: '{% block parent_job_name %}prepare{% endblock %}'
+    {% endblock %}
+  artifacts:
+    {% block build_job_artifacts %}
+    name: '{% block build_artifacts_name %}{{ config.name }}-$CI_COMMIT_REF_SLUG{% endblock %}'
+    when: {%+ block build_artifacts_when %}always{% endblock +%}
+    paths:
+      - {{ config.build.outputDirectory }}/*
+    expire_in: {%+ block build_artifacts_expiry %}14 days{% endblock %}
+    {% endblock +%}
+  rules:
+    {%- block build_rules %}
+    - when: on_success
+    {% endblock %}
+{% block build_footer %}
+{% endblock %}

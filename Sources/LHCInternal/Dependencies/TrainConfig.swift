@@ -54,6 +54,7 @@ extension Trains {
                 allowedModules: [".*"],
                 allowedResources: [".*"],
                 moduleReaders: [BundleModuleReader()],
+                env: Internal.processInfo.environment,
                 properties: properties
             )
             do {
@@ -115,16 +116,17 @@ extension Trains.TrainImpl: Encodable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: PklCodingKey.self)
         try container.encode(name, forKey: PklCodingKey(string: "name"))
-        try container.encode(displayName, forKey: PklCodingKey(string: "displayName"))
-        try container.encode(tagPrefix, forKey: PklCodingKey(string: "tagPrefix"))
-        try container.encode(releaseChannel.rawValue, forKey: PklCodingKey(string: "releaseChannel"))
         try container.encode(attrsRef, forKey: PklCodingKey(string: "attrsRef"))
+        try container.encode(tagPrefix, forKey: PklCodingKey(string: "tagPrefix"))
+        try container.encode(displayName, forKey: PklCodingKey(string: "displayName"))
         try container.encode(checklistsRef, forKey: PklCodingKey(string: "checklistsRef"))
         try container.encode(templatesDirectory, forKey: PklCodingKey(string: "templatesDirectory"))
         try container.encode(checklistDirectory, forKey: PklCodingKey(string: "checklistDirectory"))
+        try container.encode(releaseChannel.rawValue, forKey: PklCodingKey(string: "releaseChannel"))
+
+        try container.encode(userProperties, forKey: PklCodingKey(string: "userProperties"))
 
         let bumps = versionBumps.mapValues(\.rawValue)
-
         try container.encode(bumps, forKey: PklCodingKey(string: "versionBumps"))
 
         let linter = self.linter as! Trains.LinterSettingsImpl
@@ -163,11 +165,28 @@ extension Trains.LinterSettingsImpl: Encodable {
         var container = encoder.container(keyedBy: PklCodingKey.self)
 
         try container.encode(projectIdPrefix, forKey: PklCodingKey(string: "projectIdPrefix"))
+        try container.encode(projectIdRegexes, forKey: PklCodingKey(string: "projectIdRegexes"))
         try container.encode(maxSubjectLength, forKey: PklCodingKey(string: "maxSubjectLength"))
         try container.encode(maxBodyLineLength, forKey: PklCodingKey(string: "maxBodyLineLength"))
-        try container.encode(projectIdRegexes, forKey: PklCodingKey(string: "projectIdRegexes"))
-        try container.encode(projectIdsInBranches.rawValue, forKey: PklCodingKey(string: "projectIdsInBranches"))
         try container.encode(requireCommitTypes, forKey: PklCodingKey(string: "requireCommitTypes"))
+        try container.encode(projectIdsInBranches.rawValue, forKey: PklCodingKey(string: "projectIdsInBranches"))
+    }
+}
+
+extension Trains.PipelinePropertiesImpl: Encodable {
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: PklCodingKey.self)
+
+        try container.encode(jobId, forKey: PklCodingKey(string: "jobId"))
+        try container.encode(refSlug, forKey: PklCodingKey(string: "refSlug"))
+        try container.encode(refName, forKey: PklCodingKey(string: "refName"))
+        try container.encode(tagName, forKey: PklCodingKey(string: "tagName"))
+        try container.encode(pagesUrl, forKey: PklCodingKey(string: "pagesUrl"))
+        try container.encode(eventType, forKey: PklCodingKey(string: "eventType"))
+        try container.encode(pipelineId, forKey: PklCodingKey(string: "pipelineId"))
+        try container.encode(defaultBranch, forKey: PklCodingKey(string: "defaultBranch"))
+
+        try container.encode(userProperties, forKey: PklCodingKey(string: "userProperties"))
     }
 }
 
@@ -175,7 +194,6 @@ extension Trains.BuildSettingsImpl: Encodable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: PklCodingKey.self)
 
-        try container.encode(ci, forKey: PklCodingKey(string: "ci"))
         try container.encode(scheme, forKey: PklCodingKey(string: "scheme"))
         try container.encode(teamId, forKey: PklCodingKey(string: "teamId"))
         try container.encode(teamName, forKey: PklCodingKey(string: "teamName"))
@@ -183,10 +201,15 @@ extension Trains.BuildSettingsImpl: Encodable {
         try container.encode(xcodeproj, forKey: PklCodingKey(string: "xcodeproj"))
         try container.encode(productName, forKey: PklCodingKey(string: "productName"))
         try container.encode(appIdentifier, forKey: PklCodingKey(string: "appIdentifier"))
-        try container.encode(announceChannel, forKey: PklCodingKey(string: "announceChannel"))
+        try container.encode(announceForum, forKey: PklCodingKey(string: "announceForum"))
+        try container.encode(dmgConfigPath, forKey: PklCodingKey(string: "dmgConfigPath"))
+        try container.encode(userProperties, forKey: PklCodingKey(string: "userProperties"))
         try container.encode(outputDirectory, forKey: PklCodingKey(string: "outputDirectory"))
         try container.encode(testplansDirectory, forKey: PklCodingKey(string: "testplansDirectory"))
-        try container.encode(pipelineIdentifier, forKey: PklCodingKey(string: "pipelineIdentifier"))
+
+        if let ci = self.ci as? Trains.PipelinePropertiesImpl {
+            try container.encode(ci, forKey: PklCodingKey(string: "ci"))
+        }
 
         if let match = self.match as? Trains.MatchSettingsImpl {
             try container.encode(match, forKey: PklCodingKey(string: "match"))
@@ -208,11 +231,11 @@ extension Trains.TrailersImpl: Encodable {
         var container = encoder.container(keyedBy: PklCodingKey.self)
         
         try container.encode(projectId, forKey: PklCodingKey(string: "projectId"))
+        try container.encode(mergeRequest, forKey: PklCodingKey(string: "mergeRequest"))
         try container.encode(releasePipeline, forKey: PklCodingKey(string: "releasePipeline"))
         try container.encode(failedPipeline, forKey: PklCodingKey(string: "failedPipeline"))
-        try container.encode(automaticReleaseDate, forKey: PklCodingKey(string: "automaticReleaseDate"))
         try container.encode(releaseImmediately, forKey: PklCodingKey(string: "releaseImmediately"))
-        try container.encode(mergeRequest, forKey: PklCodingKey(string: "mergeRequest"))
+        try container.encode(automaticReleaseDate, forKey: PklCodingKey(string: "automaticReleaseDate"))
     }
 }
 
@@ -220,9 +243,9 @@ extension Trains.SparkleImpl: Encodable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: PklCodingKey.self)
         
-        try container.encode(appcastChannel, forKey: PklCodingKey(string: "releaseChannel"))
-        try container.encode(announceForum, forKey: PklCodingKey(string: "announceChannel"))
-        try container.encode(dmgConfig, forKey: PklCodingKey(string: "dmgConfig"))
+        try container.encode(announceForum, forKey: PklCodingKey(string: "announceForum"))
+        try container.encode(appcastChannel, forKey: PklCodingKey(string: "appcastChannel"))
+        try container.encode(userProperties, forKey: PklCodingKey(string: "userProperties"))
         try container.encode(maximumSystemVersion, forKey: PklCodingKey(string: "maximumSystemVersion"))
         try container.encode(minimumSystemVersion, forKey: PklCodingKey(string: "minimumSystemVersion"))
         try container.encode(phasedRolloutInterval, forKey: PklCodingKey(string: "phasedRolloutInterval"))
@@ -234,8 +257,9 @@ extension Trains.AppStoreImpl: Encodable {
         var container = encoder.container(keyedBy: PklCodingKey.self)
 
         try container.encode(action.rawValue, forKey: PklCodingKey(string: "action"))
-        try container.encode(testflightGroup, forKey: PklCodingKey(string: "testflightGroups"))
-        try container.encode(announceChannel, forKey: PklCodingKey(string: "announceChannel"))
+        try container.encode(announceForum, forKey: PklCodingKey(string: "announceForum"))
+        try container.encode(userProperties, forKey: PklCodingKey(string: "userProperties"))
+        try container.encode(testflightGroup, forKey: PklCodingKey(string: "testflightGroup"))
     }
 }
 
@@ -244,5 +268,6 @@ extension Trains.CustomDistributionImpl: Encodable {
         var container = encoder.container(keyedBy: PklCodingKey.self)
 
         try container.encode(exportMethod, forKey: PklCodingKey(string: "exportMethod"))
+        try container.encode(userProperties, forKey: PklCodingKey(string: "userProperties"))
     }
 }

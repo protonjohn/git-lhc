@@ -1,0 +1,88 @@
+{% block publish_job_name %}publish:{{ config.name }}:app:{% endblock +%}
+{% block publish_header %}
+{% endblock %}
+  tags:
+    {% block publish_tags %}
+    - publish-runner
+    {% endblock %}
+  variables:
+    {% block publish_job_variables %}
+    CONFIGURATIONS: {%+ block publish_app_configurations %}Release{% endblock +%}
+    GIT_SUBMODULE_STRATEGY: none
+    GIT_DEPTH: 1
+    {% endblock %}
+  stage: {%+ block publish_stage %}publish{% endblock +%}
+  script:
+    {% block publish_script %}
+    - |
+      {%+ filter indent:6 %}{% include "gitlab-pipeline-init.base.sh" %}{% endfilter %}
+    - |
+      for configuration in $(echo $CONFIGURATIONS | tr "," "\n"); do
+          echo "Publishing $config app build."
+          FASTLANE_ARGS=(
+            {% block fastlane_publish_args %}
+            "configuration:${configuration}"
+            "output_directory:{{ config.build.outputDirectory }}/$configuration"
+            {% endblock %}
+          )
+          fastlane shipit "${FASTLANE_ARGS[@]}"
+      done
+    {% endblock %}
+  needs:
+    {% block publish_job_needs %}
+    - pipeline: {%+ block parent_pipeline_id %}$PARENT_PIPELINE_ID{% endblock +%}
+      job: '{% block parent_job_name %}prepare{% endblock %}'
+    {%- if config.distribution.appStore.action == "Upload" -%}
+    {%- block publish_job_needs_binaries -%}
+    {% for configuration in block.publish_app_configurations|split:"," %}
+    - job: '{% block build_job_name %}build:{{ config.name }}:all{% endblock %}'
+      parallel:
+        matrix:
+          - TARGET: app
+            CONFIGURATION: {{ configuration }}
+    {% endfor %}
+    {%- endblock -%}
+    {% endif %}
+    {% endblock %}
+{% block publish_footer %}
+{% endblock %}
+
+{% block pages_job %}
+# NB: This job *must* be called pages in order for the site to work.
+pages:
+  stage: {%+ block pages_stage %}{{ block.publish_stage }}{% endblock +%}
+  tags:
+    {% block pages_tags %}
+{{ block.publish_tags }}
+    {%- endblock %}
+  variables:
+    {% block pages_vars %}
+    GIT_SUBMODULE_STRATEGY: none
+    GIT_DEPTH: 1
+    {% if release.tagName %}
+    BASE_PATH: {%+ block pages_release_base_path %}$CI_COMMIT_REF_SLUG{% endblock +%}
+    DOCC_PATH: {%+ block pages_release_docc_path %}"$DESCRIBE_DIR/release/pages.docc"{% endblock +%}
+    {% else %}
+    BASE_PATH: {%+ block pages_train_base_path %}"$CI_COMMIT_REF_SLUG/{{ config.name }}"{% endblock +%}
+    DOCC_PATH: {%+ block pages_train_docc_path %}"$DESCRIBE_DIR/{{ config.name }}/pages.docc"{% endblock +%}
+    {% endif %}
+    {% endblock %}
+  script:
+    {% block pages_script %}
+    - |
+      {% filter indent:6 %}{% include "gitlab-pages-script.base.sh" %}{% endfilter %}
+    {% endblock %}
+  # prevent us from downloading previous build artifacts, we just need the pages
+  needs:
+    {% block publish_job_child_pipeline_needs %}
+    - pipeline: {%+ block parent_pipeline_id %}$PARENT_PIPELINE_ID{% endblock +%}
+      job: '{% block parent_job_name %}prepare{% endblock %}'
+    {% endblock %}
+  artifacts:
+    name: "releases"
+    expire_in: {%+ block release_pages_expiry %}never{% endblock +%}
+    paths:
+      - public
+  {% block pages_footer %}
+  {% endblock %}
+{% endblock %}

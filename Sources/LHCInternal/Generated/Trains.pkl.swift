@@ -12,8 +12,6 @@ public protocol Trains_Module: PklRegisteredType, DynamicallyEquatable, Hashable
 public protocol Trains_Properties: PklRegisteredType, DynamicallyEquatable, Hashable {
     var ci: Bool { get }
 
-    var pipelineIdentifier: String? { get }
-
     var channel: Trains.ReleaseChannel { get }
 
     var checklist: String? { get }
@@ -49,6 +47,8 @@ public protocol Trains_Train: PklRegisteredType, DynamicallyEquatable, Hashable 
     var changelogExcludedTypes: [String]? { get }
 
     var changelogTypeDisplayNames: [String: String]? { get }
+
+    var userProperties: [String: String]? { get }
 }
 
 public protocol Trains_LinterSettings: PklRegisteredType, DynamicallyEquatable, Hashable {
@@ -66,9 +66,7 @@ public protocol Trains_LinterSettings: PklRegisteredType, DynamicallyEquatable, 
 }
 
 public protocol Trains_BuildSettings: PklRegisteredType, DynamicallyEquatable, Hashable {
-    var ci: Bool { get }
-
-    var pipelineIdentifier: String? { get }
+    var ci: (any Trains.PipelineProperties)? { get }
 
     var scheme: String? { get }
 
@@ -88,9 +86,35 @@ public protocol Trains_BuildSettings: PklRegisteredType, DynamicallyEquatable, H
 
     var testplansDirectory: String? { get }
 
-    var announceChannel: String? { get }
+    var configurations: [String] { get }
+
+    var dmgConfigPath: String? { get }
+
+    var announceForum: String? { get }
 
     var match: (any Trains.MatchSettings)? { get }
+
+    var userProperties: [String: String]? { get }
+}
+
+public protocol Trains_PipelineProperties: PklRegisteredType, DynamicallyEquatable, Hashable {
+    var pipelineId: String? { get }
+
+    var jobId: String? { get }
+
+    var refSlug: String? { get }
+
+    var refName: String? { get }
+
+    var tagName: String? { get }
+
+    var pagesUrl: String? { get }
+
+    var eventType: String? { get }
+
+    var defaultBranch: String? { get }
+
+    var userProperties: [String: String]? { get }
 }
 
 public protocol Trains_MatchSettings: PklRegisteredType, DynamicallyEquatable, Hashable {
@@ -118,13 +142,13 @@ public protocol Trains_Sparkle: PklRegisteredType, DynamicallyEquatable, Hashabl
 
     var announceForum: String? { get }
 
-    var dmgConfig: String? { get }
-
     var minimumSystemVersion: String? { get }
 
     var maximumSystemVersion: String? { get }
 
     var phasedRolloutInterval: Int? { get }
+
+    var userProperties: [String: String]? { get }
 }
 
 public protocol Trains_AppStore: PklRegisteredType, DynamicallyEquatable, Hashable {
@@ -132,11 +156,15 @@ public protocol Trains_AppStore: PklRegisteredType, DynamicallyEquatable, Hashab
 
     var testflightGroup: String? { get }
 
-    var announceChannel: String? { get }
+    var announceForum: String? { get }
+
+    var userProperties: [String: String]? { get }
 }
 
 public protocol Trains_CustomDistribution: PklRegisteredType, DynamicallyEquatable, Hashable {
     var exportMethod: String? { get }
+
+    var userProperties: [String: String]? { get }
 }
 
 extension Trains {
@@ -267,20 +295,12 @@ extension Trains {
 
         public var ci: Bool
 
-        public var pipelineIdentifier: String?
-
         public var channel: ReleaseChannel
 
         public var checklist: String?
 
-        public init(
-            ci: Bool,
-            pipelineIdentifier: String?,
-            channel: ReleaseChannel,
-            checklist: String?
-        ) {
+        public init(ci: Bool, channel: ReleaseChannel, checklist: String?) {
             self.ci = ci
-            self.pipelineIdentifier = pipelineIdentifier
             self.channel = channel
             self.checklist = checklist
         }
@@ -321,6 +341,8 @@ extension Trains {
 
         public var changelogTypeDisplayNames: [String: String]?
 
+        public var userProperties: [String: String]?
+
         public init(
             name: String,
             displayName: String?,
@@ -336,7 +358,8 @@ extension Trains {
             distribution: DistributionSettings?,
             trailers: any Trailers,
             changelogExcludedTypes: [String]?,
-            changelogTypeDisplayNames: [String: String]?
+            changelogTypeDisplayNames: [String: String]?,
+            userProperties: [String: String]?
         ) {
             self.name = name
             self.displayName = displayName
@@ -353,6 +376,7 @@ extension Trains {
             self.trailers = trailers
             self.changelogExcludedTypes = changelogExcludedTypes
             self.changelogTypeDisplayNames = changelogTypeDisplayNames
+            self.userProperties = userProperties
         }
 
         public static func ==(lhs: TrainImpl, rhs: TrainImpl) -> Bool {
@@ -371,6 +395,7 @@ extension Trains {
             && lhs.trailers.isDynamicallyEqual(to: rhs.trailers)
             && lhs.changelogExcludedTypes == rhs.changelogExcludedTypes
             && lhs.changelogTypeDisplayNames == rhs.changelogTypeDisplayNames
+            && lhs.userProperties == rhs.userProperties
         }
 
         public func hash(into hasher: inout Hasher) {
@@ -391,6 +416,7 @@ extension Trains {
             hasher.combine(trailers)
             hasher.combine(changelogExcludedTypes)
             hasher.combine(changelogTypeDisplayNames)
+            hasher.combine(userProperties)
         }
 
         public init(from decoder: Decoder) throws {
@@ -413,7 +439,8 @@ extension Trains {
                     .value as! any Trailers
             let changelogExcludedTypes = try dec.decode([String]?.self, forKey: PklCodingKey(string: "changelogExcludedTypes"))
             let changelogTypeDisplayNames = try dec.decode([String: String]?.self, forKey: PklCodingKey(string: "changelogTypeDisplayNames"))
-            self = TrainImpl(name: name, displayName: displayName, tagPrefix: tagPrefix, releaseChannel: releaseChannel, attrsRef: attrsRef, checklistsRef: checklistsRef, templatesDirectory: templatesDirectory, checklistDirectory: checklistDirectory, versionBumps: versionBumps, linter: linter, build: build, distribution: distribution, trailers: trailers, changelogExcludedTypes: changelogExcludedTypes, changelogTypeDisplayNames: changelogTypeDisplayNames)
+            let userProperties = try dec.decode([String: String]?.self, forKey: PklCodingKey(string: "userProperties"))
+            self = TrainImpl(name: name, displayName: displayName, tagPrefix: tagPrefix, releaseChannel: releaseChannel, attrsRef: attrsRef, checklistsRef: checklistsRef, templatesDirectory: templatesDirectory, checklistDirectory: checklistDirectory, versionBumps: versionBumps, linter: linter, build: build, distribution: distribution, trailers: trailers, changelogExcludedTypes: changelogExcludedTypes, changelogTypeDisplayNames: changelogTypeDisplayNames, userProperties: userProperties)
         }
     }
 
@@ -464,10 +491,7 @@ extension Trains {
         public static var registeredIdentifier: String = "Trains#BuildSettings"
 
         /// Whether or not the current build is being invoked from a CI context.
-        public var ci: Bool
-
-        /// A unique string identifying the current CI pipeline, if any.
-        public var pipelineIdentifier: String?
+        public var ci: (any PipelineProperties)?
 
         /// The scheme to use in the Xcode project.
         public var scheme: String?
@@ -496,15 +520,28 @@ extension Trains {
         /// Where to find the test plans in the project.
         public var testplansDirectory: String?
 
-        /// The slack channel to announce any new builds in.
-        public var announceChannel: String?
+        /// The different build configurations available for the product.
+        ///
+        /// This can be used to build multiple variants of an application. For example, one configuration might be used
+        /// for Staging, or used for testing app updates. It might be desirable to build all variants on CI, or a subset
+        /// of them depending on the defined release channel.
+        public var configurations: [String]
+
+        /// The path to the dmg configuration file (used by the `dmgbuild` Python utility).
+        ///
+        /// This is most applicable to the macOS platform, but can be used for others as well.
+        public var dmgConfigPath: String?
+
+        /// The forum in which to announce the build/test results (slack channel, mailing list, etc)
+        public var announceForum: String?
 
         /// Settings for use with fastlane match.
         public var match: (any MatchSettings)?
 
+        public var userProperties: [String: String]?
+
         public init(
-            ci: Bool,
-            pipelineIdentifier: String?,
+            ci: (any PipelineProperties)?,
             scheme: String?,
             teamId: String?,
             teamName: String?,
@@ -514,11 +551,13 @@ extension Trains {
             appIdentifier: String?,
             outputDirectory: String?,
             testplansDirectory: String?,
-            announceChannel: String?,
-            match: (any MatchSettings)?
+            configurations: [String],
+            dmgConfigPath: String?,
+            announceForum: String?,
+            match: (any MatchSettings)?,
+            userProperties: [String: String]?
         ) {
             self.ci = ci
-            self.pipelineIdentifier = pipelineIdentifier
             self.scheme = scheme
             self.teamId = teamId
             self.teamName = teamName
@@ -528,13 +567,15 @@ extension Trains {
             self.appIdentifier = appIdentifier
             self.outputDirectory = outputDirectory
             self.testplansDirectory = testplansDirectory
-            self.announceChannel = announceChannel
+            self.configurations = configurations
+            self.dmgConfigPath = dmgConfigPath
+            self.announceForum = announceForum
             self.match = match
+            self.userProperties = userProperties
         }
 
         public static func ==(lhs: BuildSettingsImpl, rhs: BuildSettingsImpl) -> Bool {
-            lhs.ci == rhs.ci
-            && lhs.pipelineIdentifier == rhs.pipelineIdentifier
+            ((lhs.ci == nil && rhs.ci == nil) || lhs.ci?.isDynamicallyEqual(to: rhs.ci) ?? false)
             && lhs.scheme == rhs.scheme
             && lhs.teamId == rhs.teamId
             && lhs.teamName == rhs.teamName
@@ -544,13 +585,17 @@ extension Trains {
             && lhs.appIdentifier == rhs.appIdentifier
             && lhs.outputDirectory == rhs.outputDirectory
             && lhs.testplansDirectory == rhs.testplansDirectory
-            && lhs.announceChannel == rhs.announceChannel
+            && lhs.configurations == rhs.configurations
+            && lhs.dmgConfigPath == rhs.dmgConfigPath
+            && lhs.announceForum == rhs.announceForum
             && ((lhs.match == nil && rhs.match == nil) || lhs.match?.isDynamicallyEqual(to: rhs.match) ?? false)
+            && lhs.userProperties == rhs.userProperties
         }
 
         public func hash(into hasher: inout Hasher) {
-            hasher.combine(ci)
-            hasher.combine(pipelineIdentifier)
+            if let ci {
+                hasher.combine(ci)
+            }
             hasher.combine(scheme)
             hasher.combine(teamId)
             hasher.combine(teamName)
@@ -560,16 +605,19 @@ extension Trains {
             hasher.combine(appIdentifier)
             hasher.combine(outputDirectory)
             hasher.combine(testplansDirectory)
-            hasher.combine(announceChannel)
+            hasher.combine(configurations)
+            hasher.combine(dmgConfigPath)
+            hasher.combine(announceForum)
             if let match {
                 hasher.combine(match)
             }
+            hasher.combine(userProperties)
         }
 
         public init(from decoder: Decoder) throws {
             let dec = try decoder.container(keyedBy: PklCodingKey.self)
-            let ci = try dec.decode(Bool.self, forKey: PklCodingKey(string: "ci"))
-            let pipelineIdentifier = try dec.decode(String?.self, forKey: PklCodingKey(string: "pipelineIdentifier"))
+            let ci = try dec.decode(PklSwift.PklAny.self, forKey: PklCodingKey(string: "ci"))
+                    .value as! (any PipelineProperties)?
             let scheme = try dec.decode(String?.self, forKey: PklCodingKey(string: "scheme"))
             let teamId = try dec.decode(String?.self, forKey: PklCodingKey(string: "teamId"))
             let teamName = try dec.decode(String?.self, forKey: PklCodingKey(string: "teamName"))
@@ -579,10 +627,59 @@ extension Trains {
             let appIdentifier = try dec.decode(String?.self, forKey: PklCodingKey(string: "appIdentifier"))
             let outputDirectory = try dec.decode(String?.self, forKey: PklCodingKey(string: "outputDirectory"))
             let testplansDirectory = try dec.decode(String?.self, forKey: PklCodingKey(string: "testplansDirectory"))
-            let announceChannel = try dec.decode(String?.self, forKey: PklCodingKey(string: "announceChannel"))
+            let configurations = try dec.decode([String].self, forKey: PklCodingKey(string: "configurations"))
+            let dmgConfigPath = try dec.decode(String?.self, forKey: PklCodingKey(string: "dmgConfigPath"))
+            let announceForum = try dec.decode(String?.self, forKey: PklCodingKey(string: "announceForum"))
             let match = try dec.decode(PklSwift.PklAny.self, forKey: PklCodingKey(string: "match"))
                     .value as! (any MatchSettings)?
-            self = BuildSettingsImpl(ci: ci, pipelineIdentifier: pipelineIdentifier, scheme: scheme, teamId: teamId, teamName: teamName, platform: platform, xcodeproj: xcodeproj, productName: productName, appIdentifier: appIdentifier, outputDirectory: outputDirectory, testplansDirectory: testplansDirectory, announceChannel: announceChannel, match: match)
+            let userProperties = try dec.decode([String: String]?.self, forKey: PklCodingKey(string: "userProperties"))
+            self = BuildSettingsImpl(ci: ci, scheme: scheme, teamId: teamId, teamName: teamName, platform: platform, xcodeproj: xcodeproj, productName: productName, appIdentifier: appIdentifier, outputDirectory: outputDirectory, testplansDirectory: testplansDirectory, configurations: configurations, dmgConfigPath: dmgConfigPath, announceForum: announceForum, match: match, userProperties: userProperties)
+        }
+    }
+
+    public typealias PipelineProperties = Trains_PipelineProperties
+
+    public struct PipelinePropertiesImpl: PipelineProperties {
+        public static var registeredIdentifier: String = "Trains#PipelineProperties"
+
+        public var pipelineId: String?
+
+        public var jobId: String?
+
+        public var refSlug: String?
+
+        public var refName: String?
+
+        public var tagName: String?
+
+        public var pagesUrl: String?
+
+        public var eventType: String?
+
+        public var defaultBranch: String?
+
+        public var userProperties: [String: String]?
+
+        public init(
+            pipelineId: String?,
+            jobId: String?,
+            refSlug: String?,
+            refName: String?,
+            tagName: String?,
+            pagesUrl: String?,
+            eventType: String?,
+            defaultBranch: String?,
+            userProperties: [String: String]?
+        ) {
+            self.pipelineId = pipelineId
+            self.jobId = jobId
+            self.refSlug = refSlug
+            self.refName = refName
+            self.tagName = tagName
+            self.pagesUrl = pagesUrl
+            self.eventType = eventType
+            self.defaultBranch = defaultBranch
+            self.userProperties = userProperties
         }
     }
 
@@ -649,11 +746,6 @@ extension Trains {
         /// The forum in which to announce the release (slack channel, mailing list, etc)
         public var announceForum: String?
 
-        /// The path to the dmg configuration file (used by the `dmgbuild` Python utility).
-        ///
-        /// This is most applicable to the macOS platform when distributing via Sparkle updates.
-        public var dmgConfig: String?
-
         /// The minimum system version supported by the update binary. (Should mirror deployment target)
         public var minimumSystemVersion: String?
 
@@ -665,20 +757,22 @@ extension Trains {
         /// See: https://sparkle-project.org/documentation/publishing/#phased-group-rollouts
         public var phasedRolloutInterval: Int?
 
+        public var userProperties: [String: String]?
+
         public init(
             appcastChannel: String?,
             announceForum: String?,
-            dmgConfig: String?,
             minimumSystemVersion: String?,
             maximumSystemVersion: String?,
-            phasedRolloutInterval: Int?
+            phasedRolloutInterval: Int?,
+            userProperties: [String: String]?
         ) {
             self.appcastChannel = appcastChannel
             self.announceForum = announceForum
-            self.dmgConfig = dmgConfig
             self.minimumSystemVersion = minimumSystemVersion
             self.maximumSystemVersion = maximumSystemVersion
             self.phasedRolloutInterval = phasedRolloutInterval
+            self.userProperties = userProperties
         }
     }
 
@@ -695,13 +789,21 @@ extension Trains {
         /// If `action` is "Submit," then this value has no effect.
         public var testflightGroup: String?
 
-        /// The Slack channel in which to announce the new release.
-        public var announceChannel: String?
+        /// The forum in which to announce the release (slack channel, mailing list, etc)
+        public var announceForum: String?
 
-        public init(action: AppStoreAction, testflightGroup: String?, announceChannel: String?) {
+        public var userProperties: [String: String]?
+
+        public init(
+            action: AppStoreAction,
+            testflightGroup: String?,
+            announceForum: String?,
+            userProperties: [String: String]?
+        ) {
             self.action = action
             self.testflightGroup = testflightGroup
-            self.announceChannel = announceChannel
+            self.announceForum = announceForum
+            self.userProperties = userProperties
         }
     }
 
@@ -712,8 +814,11 @@ extension Trains {
 
         public var exportMethod: String?
 
-        public init(exportMethod: String?) {
+        public var userProperties: [String: String]?
+
+        public init(exportMethod: String?, userProperties: [String: String]?) {
             self.exportMethod = exportMethod
+            self.userProperties = userProperties
         }
     }
 }

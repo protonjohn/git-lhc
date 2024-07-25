@@ -1,0 +1,73 @@
+{% block test_job_name %}test:{{ config.name }}:{% block test_suite %}all{% endblock %}{% endblock %}:
+{% block test_header %}
+{% endblock %}
+  stage: {%+ block test_stage %}test{% endblock +%}
+  tags:
+    {% block test_tags %}
+    - test-runner
+    {% endblock %}
+  {% block test_vars %}
+  variables:
+    CONFIGURATION: {%+ block test_build_configuration %}Debug{% endblock +%}
+    TESTPLAN_NAME: {%+ block testplan_name %}{{ config.build.productName }}-{{ config.build.platform|lowercase }}{% endblock +%}
+  {% endblock %}
+  script:
+    {% block test_script %}
+    - |
+      {%+ filter indent:6 %}{% include "gitlab-pipeline-init.base.sh" %}{% endfilter %}
+    - |
+      # Building output in {%+ block artifacts_dir %}{{ config.build.outputDirectory }}/$CONFIGURATION{% endblock %}...
+      FASTLANE_ARGS=(
+        {% block fastlane_test_args %}
+        "result_bundle:true"
+        "testplan:${TESTPLAN_NAME}"
+        "configuration:${CONFIGURATION}"
+        "buildlog_path:{{ block.artifacts_dir }}"
+        "output_directory:{{ block.artifacts_dir }}"
+        "result_bundle_path:{{ block.artifacts_dir }}"
+        "derived_data_path:$DERIVED_DATA_PATH"
+        "disable_package_automatic_updates:true"
+        "skip_package_dependencies_resolution:true"
+        {%+ endblock %}
+        {% block fastlane_test_without_building_args -%}
+        "skip_build:true"
+        "test_without_building:true"
+        "build_products_dir:${DERIVED_DATA_PATH}/Build/Products"
+        {% endblock %}
+      )
+      echo Running: fastlane testit "${FASTLANE_ARGS[@]}"
+      fastlane testit "${FASTLANE_ARGS[@]}"
+    {% endblock %}
+  needs:
+    {% block test_job_child_pipeline_needs %}
+    - pipeline: {%+ block parent_pipeline_id %}$PARENT_PIPELINE_ID{% endblock +%}
+      job: '{% block parent_job_name %}prepare{% endblock %}'
+    {% endblock -%}
+    {%- block test_job_needs %}
+    # A tag has been created, so we want to get the tests specifically, and not the release artifacts
+    - job: "{% block build_job_name %}build:{{ config.name }}:all{% endblock %}"
+      parallel:
+        matrix:
+          - TARGET: tests
+            CONFIGURATION: {{ block.test_build_configuration }}
+    {% endblock %}
+  artifacts:
+    {% block test_job_artifacts %}
+    name: '{% block test_failure_artifacts_name %}{{ block.testplan_name }}-failure-$CI_COMMIT_SHORT_SHA-$CI_COMMIT_REF_SLUG{% endblock %}'
+    when: on_failure
+    paths:
+      - "{{ config.build.outputDirectory }}/"
+    expire_in: {%+ block test_failure_artifacts_expiry %}7 days{% endblock +%}
+    # Quoting Gitlab documentation: "The artifacts created for artifacts:reports are always
+    # uploaded, regardless of the job results (success or failure)."
+    {% block test_job_artifacts_reports %}
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: "{{ block.artifacts_dir }}/cobertura.xml"
+      junit:
+        - "{{ block.artifacts_dir }}/report.junit"
+    {% endblock %}
+    {% endblock %}
+{% block test_footer %}
+{% endblock %}

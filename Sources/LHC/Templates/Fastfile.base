@@ -9,6 +9,7 @@
 #{% endif %}
 
 require 'pp' # for printing options
+require 'json' # for parsing test plans
 
 ## Important top-level global variables
 
@@ -16,13 +17,7 @@ require 'pp' # for printing options
 $repo_path = File.expand_path("#{Dir.pwd}/..")
 
 {% block header %}
-{% if train %}
 $app_identifier = "{{ config.build.appIdentifier }}"
-$train = "{{ train|lowercase }}"
-{% else %}
-$app_identifier = nil
-$train = nil
-{% endif %}
 
 unless ($timestamp = ENV["TIMESTAMP"])
     $timestamp = `date +"%y%m%d%H%M"`.strip
@@ -87,6 +82,8 @@ $deliver_platforms = {
 $options = {
     {% block options %}
     :train => $train,
+    :version_number => "{{ short_version }}",
+    :build_number => $timestamp,
     :team_id => "{{ config.build.teamId }}",
     :scheme => "{{ config.build.scheme }}",
     :channel => "{{ config.releaseChannel }}",
@@ -97,6 +94,20 @@ $options = {
     :configuration => "{{ config.build.configuration|default:"Debug" }}",
     :output_directory => "{{ config.build.outputDirectory|default:"output" }}",
     :keychain_name => "{{ config.build.match.keychainName|default:"fastlane" }}",
+    {% if config.distribution.appStore.announceForum %}
+    :release_slack_channel => "{{ config.distribution.appStore.announceForum }}",
+    {% elif config.distribution.sparkle.announceForum %}
+    :release_slack_channel => "{{ config.distribution.sparkle.announceForum }}",
+    {% endif %}
+    {%- if config.build.announceForum -%}
+    :results_slack_channel => "{{ config.build.announceForum }}",
+    {% endif %}
+    {%- if config.build.dmgConfigPath -%}
+    :dmg_config => "{{ config.build.dmgConfigPath }}",
+    {% endif %}
+    {% if config.distribution.appStore.testFlightGroup %}
+    :testflight_groups => ["{{ config.distribution.appStore.testFlightGroup }}"],
+    {% endif %}
     {% endblock %}
 }
 
@@ -339,14 +350,6 @@ private_lane :promote_testflight_release do |arguments|
         app.get_beta_groups(filter: { :name => name }, limit: 1).first
     }
 
-    # Update the changelog with the new value
-    if (changelog = $options[:changelog])
-        localization = build.get_beta_build_localizations(limit: 1).first
-        Spaceship::ConnectAPI.patch_beta_build_localizations(localization_id: localization.id, attributes: {
-            :whatsNew => changelog
-        })
-    end
-
     build.add_beta_groups(beta_groups: groups)
 end
 
@@ -406,6 +409,201 @@ def find_xctestrun_file()
     return xctestrun
 end
 
+def set_plist_keys_helper(configuration, xcodeproj, project_dir, target_map, action, plist_entries)
+    targets = []
+
+    # First, get all of the targets for a given scheme, as well as each target's dependencies.
+    # Getting dependencies is necessary because things like system extensions don't automatically get included into
+    # schemes as buildable references for some reason.
+    action.entries.each do |entry|
+        entry.buildable_references.each do |reference|
+            next unless (target = target_map[reference.target_name])
+            targets.append(target)
+
+            for dependency in target.dependencies
+                next unless (target = dependency.target)
+                targets.append(target)
+            end
+        end
+    end
+
+    plist_target_key = "INFOPLIST_FILE"
+    targets.each do |target|
+        next unless (build_settings = target.build_settings(configuration))
+
+        plist_path = build_settings.fetch(
+            plist_target_key,
+            target.common_resolved_build_setting(
+                plist_target_key
+            )
+        )
+        next unless plist_path
+
+        update_info_plist(
+            xcodeproj: xcodeproj,
+            plist_path: plist_path,
+            block: proc do |plist|
+                plist_entries.each do |key, value|
+                    plist[key] = value
+                end
+            end
+        )
+    end
+end
+
+private_lane :sparkle_sign_update do |options|
+    require 'digest'
+
+    binary_path = rel_to_repo(get_or_die($options, :sparkle_binary_path))
+    ed_key = get_or_die($secrets, :appcast_ed_key)
+    item_file = rel_to_repo(get_or_die($options, :sparkle_item_file))
+    output_directory = rel_to_repo(get_or_die($options, :output_directory))
+
+    hash = Digest::SHA256.hexdigest(File.read(binary_path))
+    signature = `echo #{ed_key} | sign_update -f - #{binary_path}`.strip
+    die "Could not sign binary: #{signature}" unless $?.success?
+
+    signature << " hash=\"#{hash}\""
+    ENV['APPCAST_SIGNATURE'] = signature
+
+    sparkle_item = `envsubst '${APPCAST_SIGNATURE}' < "#{item_file}" 2> /dev/stdout`
+    die "Could not create update xml file: #{sparkle_item}" unless $?.success?
+
+    File.open("#{output_directory}/#{File.basename(item_file)}", 'w+') { |file|
+        file.write(sparkle_item)
+    }
+end
+
+private_lane :sparkle_append_item do |options|
+    item_file = rel_to_repo(get_or_die($options, :sparkle_item_file))
+    sparkle_xml_file = rel_to_repo(get_or_die($options, :sparkle_xml_file))
+    sparkle_xml_name = $options.fetch(:sparkle_xml_name, "sparkle.xml")
+
+    sparkle_item = File.read(item_file)
+    sparkle_xml = File.read(sparkle_xml_file)
+
+    replace_identifier = $options.fetch(:sparkle_replace_identifier, "<!-- >8 Next release >8 -->\n")
+    sparkle_xml.sub!(replace_identifier, replace_identifier + sparkle_item)
+
+    File.open("#{output_directory}/#{sparkle_xml_name}", 'w') { |file|
+        file.write(sparkle_xml)
+    }
+end
+
+# This one is kind of a monster: manually crack open the Xcode project, find the named scheme on disk, and iterate
+# through all of the targets and their dependencies for that scheme, adding the given keys to all of the info plists.
+private_lane :set_plist_keys do |options|
+    build_target_entries = options.fetch(:extra_plist_entries, {})
+    test_target_entries = options.fetch(:extra_test_plist_entries, {})
+    next if build_target_entries.empty? and test_target_entries.empty?
+
+    project_dir = get_or_die(options, :project_dir)
+    xcodeproj = get_or_die(options, :xcodeproj)
+    xcodeproj = File.expand_path("#{$repo_path}/#{xcodeproj}")
+
+    scheme_name = get_or_die(options, :scheme)
+    configuration = get_or_die(options, :configuration)
+
+    project = Xcodeproj::Project.open(xcodeproj)
+    schemes = Xcodeproj::Project.schemes(xcodeproj)
+    shared_schemes = Xcodeproj::XCScheme.shared_data_dir(xcodeproj)
+    scheme_path = "#{shared_schemes}/#{scheme_name}.xcscheme"
+    unless (schemes.include?(scheme_name)) and File.exist?(scheme_path)
+        die "Unable to find scheme named #{scheme_name} in #{xcodeproj}."
+    end
+
+    scheme = Xcodeproj::XCScheme.new(scheme_path)
+
+    target_map = {}
+    project.targets.each do |target|
+        target_map[target.name] = target
+    end
+
+    unless build_target_entries.empty?
+        die "Scheme's build action is not defined." unless scheme.build_action
+        set_plist_keys_helper(configuration, xcodeproj, project_dir, target_map, scheme.build_action, build_target_entries)
+    end
+
+    unless test_target_entries.empty?
+        die "Scheme's test action is not defined." unless scheme.test_action
+        set_plist_keys_helper(configuration, xcodeproj, project_dir, target_map, scheme.test_action, test_target_entries)
+    end
+end
+
+# Create a dmg using the `dmgconfig' python tool. Requires that the tool is installed.
+private_lane :create_dmg do |arguments|
+    dmg_config = rel_to_repo(get_or_die($options, :dmg_config))
+    output_directory = rel_to_repo(get_or_die($options, :output_directory))
+
+    output_name = get_or_die($options, :output_name)
+    volume_name = $options.fetch(:dmg_volume_name, output_name)
+    app_name = "#{output_name}.app"
+    dmg_name = $options.fetch(:dmg_output_name, output_name) + ".dmg"
+
+    puts "Creating disk image containing #{output_name}.app named #{dmg_name} using #{dmg_config}, mountable as #{volume_name}..."
+
+    Dir.chdir(output_directory) {
+        puts `env python3 -m dmgbuild -Dapp="#{app_name}" -Drepo="#{$repo_path}" -s "#{dmg_config}" "#{volume_name}" "#{dmg_name}"`
+    }
+
+    die "Could not create dmg." unless $?.success?
+end
+
+def tests_in_testplan(path)
+    unless File.exist?(path) and (contents = File.read(path)) and (json = JSON.parse(contents))
+        puts "#{path} is not a valid testplan path, ignoring file."
+        return nil
+    end
+
+    unless (testTargets = json["testTargets"])
+        puts "Test plan has unrecognized format, ignoring file."
+        return nil
+    end
+
+    result = []
+    testTargets.each do |test|
+        next unless (target = test["target"])
+        next unless (name = target["name"])
+        result << name
+    end
+    return result
+end
+
+def interpret_code_coverage()
+    # Prepare coverage report
+    puts "Generating code coverage json..."
+    xcresult_path = get_or_die(lane_context, SharedValues::SCAN_GENERATED_XCRESULT_PATH)
+    test_output_directory = $options.fetch(:output_directory, "output")
+    coverage_report_file = "#{$repo_path}/#{test_output_directory}/coverage.json"
+
+    result = `xcrun xccov view --report --json #{xcresult_path} > #{coverage_report_file}`
+    unless $?.success?
+        die "Unable to generate code coverage report from xcresult: #{result}"
+    end
+
+    exclude = ""
+    if (exclude_targets = $options[:coverage_exclude_targets])
+        exclude_targets.each do |target|
+            exclude << " --exclude-targets #{target}"
+        end
+    end
+
+    puts "Converting json to cobertura format..."
+    # Convert test coverage report to cobertura format for gitlab to understand
+    result = `mint run -m "#{$mintfile}" xcodecoverageconverter generate #{coverage_report_file} "#{test_output_directory}/cobertura.xml" cobertura-xml#{exclude}`
+    unless $?.success?
+        die "Unable to convert code coverage file to cobertura format: #{result}"
+    end
+
+    coverage_contents = File.read(coverage_report_file)
+    coverage_data = JSON.parse(coverage_contents)
+    unless line_coverage = coverage_data["lineCoverage"]
+        die "Line coverage data not present in code coverage file."
+    end
+
+    puts "Total test coverage: #{(line_coverage * 100).round(2)}%"
+end
+
 ## Lanes
 {% block private_lanes %}{% endblock %}
 
@@ -445,6 +643,9 @@ lane :buildit do |arguments|
         build_app(**build_app_options)
 
         {% block postbuild %}
+        if $options[:dmg_config]
+            create_dmg()
+        end
         if $options[:notarize]
             notarize_path = $options.fetch(:notarize_package, "#{$options[:output_directory]}/#{$options[:output_name]}.app")
 
@@ -548,6 +749,13 @@ lane :testit do |arguments|
         run_tests(**run_tests_options)
 
         {% block posttest %}
+        if (testplan = $options[:testplan]) and (tests = tests_in_testplan("#{$repo_path}/{{ config.build.testplansDirectory }}/#{testplan}.xctestplan"))
+            $options[:coverage_exclude_targets] = tests
+        end
+
+        unless $options[:build_for_testing]
+            interpret_code_coverage()
+        end
         {% endblock %}
     ensure
         {% block test_cleanup %}
@@ -561,7 +769,11 @@ lane :shipit do |arguments|
     initialize(arguments)
 
     begin
-        {% block preship %}{% endblock %}
+        {% block preship %}
+        {% if config.distribution.appStore %}
+        $options[:ipa] = File.expand_path("#{$repo_path}/#{$options[:output_directory]}/#{$options[:output_name]}.ipa")
+        {% endif %}
+        {% endblock %}
 
         {% if config.distribution.appStore.action == "Upload" %}
         sign_in_to_app_store_connect()
@@ -594,35 +806,7 @@ lane :shipit do |arguments|
         {% endblock %}
         {% elif config.distribution.sparkle %}
         {% block sparkle %}
-        require 'digest'
-
-        binary_path = rel_to_repo(get_or_die($options, :sparkle_binary_path))
-        ed_key = get_or_die($secrets, :appcast_ed_key)
-        item_file = rel_to_repo(get_or_die($options, :sparkle_item_file))
-        sparkle_xml_file = rel_to_repo(get_or_die($options, :sparkle_xml_file))
-        sparkle_xml_name = $options.fetch(:sparkle_xml_name, "sparkle.xml")
-        output_directory = rel_to_repo(get_or_die($options, :output_directory))
-        download_url = get_or_die($options, :sparkle_download_url)
-
-        hash = Digest::SHA256.hexdigest(File.read(binary_path))
-        signature = `echo #{ed_key} | sign_update -f - #{binary_path}`.strip
-        die "Could not sign binary: #{signature}" unless $?.success?
-
-        signature << " hash=\"#{hash}\""
-
-        ENV['APPCAST_SIGNATURE'] = signature
-        ENV['APPCAST_DOWNLOAD_URL'] = download_url
-
-        replace_identifier = $options.fetch(:sparkle_replace_identifier, "<!-- >8 Next release >8 -->\n")
-        sparkle_item = `envsubst '${APPCAST_SIGNATURE},${APPCAST_DOWNLOAD_URL}' < "#{item_file}" 2> /dev/stdout`
-        die "Could not create update xml file: #{sparkle_item}" unless $?.success?
-
-        sparkle_xml = File.read(sparkle_xml_file)
-        sparkle_xml.sub!(replace_identifier, replace_identifier + sparkle_item)
-
-        File.open("#{output_directory}/#{sparkle_xml_name}", 'w') { |file|
-            file.write(sparkle_xml)
-        }
+        sparkle_sign_update()
         {% endblock %}
         {% else %}{% block custom_shipit %}
         {# hic sunt dracones #}
@@ -634,26 +818,32 @@ lane :shipit do |arguments|
     end
 end
 
-lane :shoutit do |arguments|
+lane :announceit do |arguments|
     initialize(arguments)
 
-    {% block preshout %}
+    {% block preannounce %}
     if (filename = $options[:slack_filename])
         filename = rel_to_repo(filename)
         $options[:slack_message] = File.read(filename)
     end
     {% endblock %}
 
-    puts "channel: #{$options[:slack_channel]}, message: #{$options[:slack_message]}"
+    channel = get_or_die($options, :slack_channel)
+    message = get_or_die($options, :slack_message)
 
-    #slack(
-    #    {% block slack_args %}
-    #    message: $options[:slack_message],
-    #    channel: $options[:slack_channel],
-    #    success: $options.fetch(:slack_success, true),
-    #    {% endblock %}
-    #)
+    if $options[:slack_dry_run]
+        puts "channel: #{channel}, message: #{message}"
+    else
+        slack(
+            {% block slack_args %}
+            message: message,
+            channel: channel,
+            success: $options.fetch(:slack_success, true),
+            use_webhook_configured_username_and_icon: true,
+            {% endblock %}
+        )
+    end
 
-    {% block postshout %}
+    {% block postannounce %}
     {% endblock %}
 end

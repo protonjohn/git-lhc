@@ -1,0 +1,19 @@
+{%- if object.target -%}
+{%- if channel == "alpha" -%}
+{%- if config.build.ci.pipelineId -%}
+{{ config.build.ci.pipelineId }}.
+{%- endif -%}
+{%- else -%}
+{%- if target|attrs:config.trailers.releasePipeline -%}
+{{ target|attrs:config.trailers.releasePipeline }}.
+{%- endif -%}
+{%- endif -%}
+{{ object.target|get:"oid"|rev_parse|get:"date"|format_date:"yyMMddHHmm",true }}
+{%- elif object.committer -%}
+{%- if config.build.ci.pipelineId -%}
+{{ config.build.ci.pipelineId }}.
+{%- endif -%}
+{{ object.committer.time|format_date:"yyMMddHHmm",true }}
+{%- else -%}
+{{- now|format_date:"yyMMddHHmm" -}}
+{%- endif -%}

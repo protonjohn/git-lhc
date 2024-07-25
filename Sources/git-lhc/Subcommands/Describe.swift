@@ -412,17 +412,15 @@ struct Describe: ParsableCommand {
         if let target {
             let tagsByTarget = try repo.tagsByTarget()
             if let otherTags = tagsByTarget[target] {
-                context["other_versions"] = otherTags.compactMap {
+                context["otherVersions"] = otherTags.compactMap {
                     Version(prefix: train?.tagPrefix, versionString: $0.name)
                 }.sorted()
             }
         }
 
-        let oidStringLength = (try? ObjectID.minimumLength(
-            toLosslesslyRepresent: release.changes.flatMap(\.value).map(\.commitHash),
-            initialMinimum: 6
-        )) ?? ObjectID.stringLength
-        context["oid_string_length"] = oidStringLength
+        let oidStrings = release.changes.flatMap(\.value).map(\.commitHash)
+        let oidStringLength = ObjectID.minimumLength(toLosslesslyRepresentOidStrings: oidStrings, floor: 7)
+        context["oidStringLength"] = oidStringLength
 
         var contents: [String: Data] = [:]
         if let checklistSubdirectoryPath {
@@ -437,7 +435,7 @@ struct Describe: ParsableCommand {
                 checklistNames.append($0.key)
             }
 
-            context["checklist_filenames"] = checklistNames
+            context["checklistFilenames"] = checklistNames
         }
 
         // Make sure we don't render the same template multiple times, it's unnecessary (and the dictionary merging

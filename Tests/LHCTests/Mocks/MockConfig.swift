@@ -65,7 +65,8 @@ extension Trains.TrainImpl {
         distribution: Trains.DistributionSettings? = nil,
         trailers: any Trains.Trailers = Trains.TrailersImpl(),
         changelogExcludedTypes: [String]? = nil,
-        changelogTypeDisplayNames: [String: String]? = nil
+        changelogTypeDisplayNames: [String: String]? = nil,
+        userProperties: [String: String]? = nil
     ) {
         self.init(
             name: testName,
@@ -82,7 +83,8 @@ extension Trains.TrainImpl {
             distribution: distribution,
             trailers: trailers,
             changelogExcludedTypes: changelogExcludedTypes,
-            changelogTypeDisplayNames: changelogTypeDisplayNames
+            changelogTypeDisplayNames: changelogTypeDisplayNames,
+            userProperties: userProperties
         )
     }
 }

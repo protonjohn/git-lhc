@@ -425,11 +425,10 @@ public class TemplateExtension: Stencil.Extension {
             return Array(result)
         case let value as any Collection:
             return value.prefix(arguments.first as? Int ?? 1) as any Collection
+        case nil:
+            return ""
         default:
-            throw TemplateSyntaxError("""
-                'prefix' takes one value, which must be a collection.
-                """
-            )
+            return String(describing: value!).prefix(arguments.first as? Int ?? 1)
         }
     }
 

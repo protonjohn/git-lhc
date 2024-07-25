@@ -571,8 +571,8 @@ public extension Stencil.Environment {
         let commits: [Commitish]
         var lastObject: ObjectType?
         if let (object, lastNote) = try repository.lastNotedObject(from: target, notesRef: checklistRef) {
-            context["last_note"] = lastNote
-            context["last_target"] = object
+            context["lastNote"] = lastNote
+            context["lastTarget"] = object
             lastObject = object
 
             var sinceOid = object.oid
@@ -593,8 +593,7 @@ public extension Stencil.Environment {
             oids.insert(lastObject.oid)
         }
 
-        let minimumLength = try? ObjectID.minimumLength(toLosslesslyRepresent: oids)
-        context["oid_string_length"] = minimumLength ?? ObjectID.stringLength
+        context["oidStringLength"] = ObjectID.minimumLength(toLosslesslyRepresentStringsOf: oids, floor: 7)
 
         let changes: [ObjectID: ConventionalCommit] = commits.reduce(into: [:]) {
             var attributes: [ConventionalCommit.Trailer]?
