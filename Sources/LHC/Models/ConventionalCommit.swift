@@ -222,6 +222,10 @@ extension ConventionalCommit {
         )
 
         let header: Header
+        guard !components.isEmpty else {
+            throw ReleaseError.invalidVersion("")
+        }
+
         let subject = components.removeFirst()
 
         if subject.hasPrefix("Merge") || subject.hasPrefix("Revert") {
