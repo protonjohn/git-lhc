@@ -24,7 +24,7 @@
     {% endif %}
     {% endblock %}
   needs:
-    {% block announce_release_needs -%}
+    {% block announce_release_needs %}
     - pipeline: {%+ block parent_pipeline_id %}$PARENT_PIPELINE_ID{% endblock +%}
       job: '{% block parent_job_name %}prepare{% endblock %}'
     {%- endblock %}
