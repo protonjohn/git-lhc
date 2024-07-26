@@ -573,8 +573,8 @@ def interpret_code_coverage()
     # Prepare coverage report
     puts "Generating code coverage json..."
     xcresult_path = get_or_die(lane_context, SharedValues::SCAN_GENERATED_XCRESULT_PATH)
-    test_output_directory = $options.fetch(:output_directory, "output")
-    coverage_report_file = "#{$repo_path}/#{test_output_directory}/coverage.json"
+    test_output_directory = rel_to_repo($options.fetch(:output_directory, "output"))
+    coverage_report_file = "#{test_output_directory}/coverage.json"
 
     result = `xcrun xccov view --report --json #{xcresult_path} > #{coverage_report_file}`
     unless $?.success?
