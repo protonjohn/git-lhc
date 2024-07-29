@@ -782,10 +782,10 @@ lane :shipit do |arguments|
         upload_to_testflight(
             {% block testflight_upload_args %}
             ipa: $options[:ipa],
-            app_platform: $app_platforms[$options.fetch(:platform, "ios")],
+            app_platform: $deliver_platforms[$options.fetch(:platform, "ios")],
             distribute_external: true,
             groups: $options[:testflight_groups],
-            changelog: $options[:changelog],
+            changelog: $options.fetch(:changelog, ""),
             {% endblock %}
         )
         {% endblock %}

@@ -64,7 +64,7 @@
     reports:
       coverage_report:
         coverage_format: cobertura
-        path: "{{ block.artifacts_dir }}/cobertura.xml"
+        path: "{{ block.artifacts_dir }}/cobertura.xml/cobertura.xml"
       junit:
         - "{{ block.artifacts_dir }}/report.junit"
     {% endblock %}
