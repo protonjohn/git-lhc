@@ -106,6 +106,11 @@ struct Lint: ParsableCommand, VerboseCommand {
     }
 
     mutating func lint(commit: Commitish, branch: Branchish?, train: Trains.TrainImpl?) throws {
+        guard commit.parentOIDs.count <= 1 else {
+            printIfVerbose("Skipping merge commit \(commit.oid)...")
+            return
+        }
+
         printIfVerbose("Linting commit \(commit.oid)...")
 
         let components = commit.message

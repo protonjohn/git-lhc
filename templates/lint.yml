@@ -11,6 +11,8 @@ spec:
       default: 'lhc:'
     cmd_prefix:
       default: ""
+    train:
+      default: ""
     # the pipeline stage the describe job will run in.
     stage:
       default: lint
@@ -23,8 +25,14 @@ $[[ inputs.job_prefix ]]lint:commits:
   variables:
     GIT_DEPTH: $[[ inputs.git_depth ]]
     GIT_SUBMODULE_STRATEGY: $[[ inputs.git_submodule_strategy ]]
+    TRAIN: $[[ inputs.train ]]
   stage: $[[ inputs.stage ]]
   tags: 
     - $[[ inputs.tag ]]
   script:
-    - $[[ inputs.cmd_prefix ]]git-lhc lint --verbose
+    - |
+      if [ -z "$TRAIN" ]; then
+        $[[ inputs.cmd_prefix ]]git-lhc lint --verbose
+      else
+        $[[ inputs.cmd_prefix ]]git-lhc lint --verbose --train "$TRAIN"
+      fi
