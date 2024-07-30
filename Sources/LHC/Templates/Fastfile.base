@@ -183,6 +183,7 @@ private_lane :create_simulator do |arguments|
     # Fix UI tests failing on secure field entry
     defaults_write("com.apple.iphonesimulator", "ConnectHardwareKeyboard", "0")
 
+    $options[:destination_id] = simulator_uuid.strip
     puts "Simulator created. UUID: #{simulator_uuid}"
     $created_simulator = true
 end
@@ -384,8 +385,8 @@ def find_xctestrun_file()
     xctestrun = nil
     max_matches = 0
 
-    # Match against the following elements in the filename. Whichever gets the most of them wins.
-    elements = [sdk, testplan, scheme, architecture]
+    # Match against the following elements in the filename, in increasing priority. Whichever gets the most of them wins.
+    elements = [architecture, sdk, scheme, testplan]
     Dir.chdir(build_products_dir) {
         Dir.glob("**/*").each do |path|
             path = File.expand_path(path)
@@ -394,9 +395,15 @@ def find_xctestrun_file()
             puts("Considering #{path}...")
             basename = File.basename(path)
             this_matches = 0
+            match_weight = 1
             for element in elements
-                next unless basename.include?(element)
-                this_matches += 1
+                unless basename.include?(element)
+                    match_weight *= 2
+                    next
+                end
+
+                this_matches += match_weight
+                match_weight *= 2
             end
 
             next unless this_matches > max_matches
@@ -712,6 +719,8 @@ lane :testit do |arguments|
 
         if $options[:create_simulator] and not $options[:build_for_testing]
             create_simulator()
+            # create_simulator() sets :destination_id, use this if we're running tests in order to completely disambiguate the destination
+            $options[:destination] = "id=#{$options[:destination_id]}"
         end
 
         if not $options[:test_without_building]
