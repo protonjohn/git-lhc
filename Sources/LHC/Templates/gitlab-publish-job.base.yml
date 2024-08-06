@@ -32,7 +32,7 @@
     {% block publish_job_needs %}
     - pipeline: {%+ block parent_pipeline_id %}$PARENT_PIPELINE_ID{% endblock +%}
       job: '{% block parent_job_name %}prepare{% endblock %}'
-    {%- if config.distribution.appStore.action == "Upload" -%}
+    {% if config.distribution.appStore.action == "Upload" %}
     {%- block publish_job_needs_binaries -%}
     {% for configuration in block.publish_app_configurations|split:"," %}
     - job: '{% block build_job_name %}build:{{ config.name }}:all{% endblock %}'
