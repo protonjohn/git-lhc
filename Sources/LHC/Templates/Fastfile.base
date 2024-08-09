@@ -23,6 +23,8 @@ unless ($timestamp = ENV["TIMESTAMP"])
     $timestamp = `date +"%y%m%d%H%M"`.strip
 end
 
+$train = "{{ train }}"
+
 ## Basic setup/configuration functions
 
 def die(string)
