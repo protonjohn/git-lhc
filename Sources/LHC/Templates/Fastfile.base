@@ -105,8 +105,8 @@ $options = {
     {%- if config.build.dmgConfigPath -%}
     :dmg_config => "{{ config.build.dmgConfigPath }}",
     {% endif %}
-    {% if config.distribution.appStore.testflightGroup %}
-    :testflight_groups => ["{{ config.distribution.appStore.testflightGroup }}"],
+    {% if config.distribution.appStore.testFlightGroup %}
+    :testflight_groups => ["{{ config.distribution.appStore.testFlightGroup }}"],
     {% endif %}
     {% endblock %}
 }
