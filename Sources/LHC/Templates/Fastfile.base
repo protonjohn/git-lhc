@@ -781,6 +781,7 @@ lane :shipit do |arguments|
 
     begin
         {% block preship %}
+        increment_build_number(build_number: $options[:build_number], xcodeproj: $options[:xcodeproj])
         {% if config.distribution.appStore %}
         $options[:ipa] = File.expand_path("#{$repo_path}/#{$options[:output_directory]}/#{$options[:output_name]}.ipa")
         {% endif %}
