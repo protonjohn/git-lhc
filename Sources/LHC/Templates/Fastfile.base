@@ -347,7 +347,17 @@ private_lane :promote_testflight_release do |arguments|
     require 'spaceship'
 
     app = Spaceship::ConnectAPI::App.find($app_identifier)
-    build = app.get_builds(filter: { :version => $options[:build_number] }, limit: 1).first
+    # Fetch all builds for a specific app version
+    builds = app.get_builds()
+
+    # Define the wildcard pattern for the build number, e.g., `*.BUILD_NUMBER`
+    wildcard_pattern = $options[:build_number].gsub('*', '.*')
+
+    # Filter builds that match the wildcard pattern for build number
+    filtered_builds = builds.select { |b| b.build_number.match?(/^#{wildcard_pattern}$/) }
+
+    # Select the first match (or handle multiple matches as needed)
+    build = filtered_builds.first
 
     groups = $options[:testflight_groups].map { |name|
         app.get_beta_groups(filter: { :name => name }, limit: 1).first
@@ -781,7 +791,6 @@ lane :shipit do |arguments|
 
     begin
         {% block preship %}
-        increment_build_number(build_number: $options[:build_number], xcodeproj: $options[:xcodeproj])
         {% if config.distribution.appStore %}
         $options[:ipa] = File.expand_path("#{$repo_path}/#{$options[:output_directory]}/#{$options[:output_name]}.ipa")
         {% endif %}
