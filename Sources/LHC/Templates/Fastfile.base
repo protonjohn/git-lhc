@@ -347,21 +347,12 @@ private_lane :promote_testflight_release do |arguments|
     require 'spaceship'
 
     app = Spaceship::ConnectAPI::App.find($app_identifier)
-    # Fetch all builds for a specific app version
-    builds = app.get_builds()
+    app = Spaceship::ConnectAPI::App.find($app_identifier)
+    build = app.get_builds(filter: { :version => $options[:build_number] }, limit: 1).first
 
-    # Define the wildcard pattern for the build number, e.g., `*.BUILD_NUMBER`
-    wildcard_pattern = "*." + $options[:build_number]
-
-    # Filter builds that match the wildcard pattern for build number
-    filtered_builds = builds.select { |b| b.version.match?(/^#{wildcard_pattern}$/) }
-
-    if filtered_builds.empty?
-        raise "No builds matched the provided wildcard pattern #{wildcard_pattern}. Task failed. Total number of builds: #{builds.count}"
+    if not build 
+        raise "No builds matched the provided version number #{$options[:build_number]}. Task failed."
     end
-
-    # Select the first match (or handle multiple matches as needed)
-    build = filtered_builds.first
 
     groups = $options[:testflight_groups].map { |name|
         app.get_beta_groups(filter: { :name => name }, limit: 1).first
