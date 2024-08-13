@@ -347,7 +347,6 @@ private_lane :promote_testflight_release do |arguments|
     require 'spaceship'
 
     app = Spaceship::ConnectAPI::App.find($app_identifier)
-    app = Spaceship::ConnectAPI::App.find($app_identifier)
     build = app.get_builds(filter: { :version => $options[:build_number] }, limit: 1).first
 
     if not build 
