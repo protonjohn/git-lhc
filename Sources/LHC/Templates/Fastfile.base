@@ -356,6 +356,10 @@ private_lane :promote_testflight_release do |arguments|
     # Filter builds that match the wildcard pattern for build number
     filtered_builds = builds.select { |b| b.version.match?(/^#{wildcard_pattern}$/) }
 
+    if filtered_builds.empty?
+        raise "No builds matched the provided wildcard pattern #{wildcard_pattern}. Task failed. Total number of builds: #{builds.count}"
+    end
+
     # Select the first match (or handle multiple matches as needed)
     build = filtered_builds.first
 
