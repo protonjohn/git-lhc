@@ -351,10 +351,10 @@ private_lane :promote_testflight_release do |arguments|
     builds = app.get_builds()
 
     # Define the wildcard pattern for the build number, e.g., `*.BUILD_NUMBER`
-    wildcard_pattern = $options[:build_number].gsub('*', '.*')
+    wildcard_pattern = "*." + $options[:build_number]
 
     # Filter builds that match the wildcard pattern for build number
-    filtered_builds = builds.select { |b| b.build_number.match?(/^#{wildcard_pattern}$/) }
+    filtered_builds = builds.select { |b| b.version.match?(/^#{wildcard_pattern}$/) }
 
     # Select the first match (or handle multiple matches as needed)
     build = filtered_builds.first
