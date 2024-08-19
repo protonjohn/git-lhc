@@ -843,7 +843,8 @@ lane :announceit do |arguments|
     end
     {% endblock %}
 
-    channel = get_or_die($options, :slack_channel)
+    # TODO: fix if needed. Testing: slack_channel -> release_slack_channel
+    channel = get_or_die($options, :release_slack_channel)
     message = get_or_die($options, :slack_message)
 
     if $options[:slack_dry_run]
