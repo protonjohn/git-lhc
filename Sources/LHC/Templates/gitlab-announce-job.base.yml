@@ -19,7 +19,7 @@
     - fastlane announceit "slack_filename:$DESCRIBE_DIR/release/slack-message.txt"
     {% if not target|attrs:config.trailers.releasePipeline %}
     - git fetch origin '+refs/notes/*:refs/notes/*'
-    - $LHC attr add --train "{{ config.name }}" '{{ config.trailers.releasePipeline }}={{ config.build.ci.pipelineId }}'
+    - mint run git-lhc attr add --train "{{ config.name }}" --channel "{{ config.releaseChannel }}" '{{ config.trailers.releasePipeline }}={{ config.build.ci.pipelineId }}'
     - git push origin 'refs/notes/*'
     {% endif %}
     {% endblock %}
@@ -55,7 +55,7 @@
       fi
 
       git fetch origin '+refs/notes/*:refs/notes/*'
-      $LHC attr --train "{{ config.name }}" add "${ATTR_ARGS[@]}"
+      mint run git-lhc attr add --train "{{ config.name }}" --channel "{{ config.releaseChannel }}"  "${ATTR_ARGS[@]}"
       git push origin 'refs/notes/*'
   when: on_failure
 {% block announce_failure_footer %}
