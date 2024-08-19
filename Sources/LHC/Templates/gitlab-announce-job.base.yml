@@ -19,7 +19,7 @@
     - fastlane announceit "slack_filename:$DESCRIBE_DIR/release/slack-message.txt"
     {% if not target|attrs:config.trailers.releasePipeline %}
     - git fetch origin '+refs/notes/*:refs/notes/*'
-    - $LHC attr --train "{{ config.name }}" add '{{ config.trailers.releasePipeline }}={{ config.build.ci.pipelineId }}'
+    - $LHC attr add --train "{{ config.name }}" '{{ config.trailers.releasePipeline }}={{ config.build.ci.pipelineId }}'
     - git push origin 'refs/notes/*'
     {% endif %}
     {% endblock %}
