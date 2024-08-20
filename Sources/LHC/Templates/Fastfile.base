@@ -757,6 +757,7 @@ lane :testit do |arguments|
             :cloned_source_packages_path,
             :disable_package_automatic_updates,
             :skip_package_dependencies_resolution,
+            :slack_channel => $options[:results_slack_channel]
             {% endblock %}
         ])
         {% endblock %}
@@ -843,7 +844,6 @@ lane :announceit do |arguments|
     end
     {% endblock %}
 
-    # TODO: fix if needed. Testing: slack_channel -> release_slack_channel
     channel = get_or_die($options, :release_slack_channel)
     message = get_or_die($options, :slack_message)
 
