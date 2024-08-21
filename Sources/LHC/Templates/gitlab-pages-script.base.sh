@@ -20,6 +20,7 @@ if ! git fetch origin "+refs/$RELEASES_PATH:refs/$RELEASES_PATH"; then
 else
     echo "Checking out pages storage..."
     git update-ref refs/heads/ci/$RELEASES_PATH refs/$RELEASES_PATH
+    git worktree prune
     git worktree add public ci/$RELEASES_PATH
 fi
 
