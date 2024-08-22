@@ -11,7 +11,7 @@ echo "$CI_PAGES_URL/$BASE_PATH"
 REF_NAMESPACE=x-pages
 RELEASES_PATH=$REF_NAMESPACE/releases
 git config --global credential.helper 'store'
-echo "https://oauth2:${$PIPELINE_ACCESS_TOKEN}@gitlab.com" > ~/.git-credentials
+echo "https://oauth2:${PIPELINE_ACCESS_TOKEN}@gitlab.com" > ~/.git-credentials
 if ! git fetch origin "+refs/$RELEASES_PATH:refs/$RELEASES_PATH"; then
     echo "Setting up pages storage..."
     git worktree add --detach public
