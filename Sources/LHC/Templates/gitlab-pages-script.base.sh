@@ -10,9 +10,7 @@ echo "$CI_PAGES_URL/$BASE_PATH"
 
 REF_NAMESPACE=x-pages
 RELEASES_PATH=$REF_NAMESPACE/releases
-git config credential.helper 'store'
-rm ~/.git-credentials
-echo "https://oauth2:${PIPELINE_ACCESS_TOKEN}@gitlab.protontech.ch" > ~/.git-credentials
+git config remote.origin.url "https://oauth2:${PIPELINE_ACCESS_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
 echo "Done adding token: ${PIPELINE_ACCESS_TOKEN}"
 echo "Config:"
 git config --local --list
