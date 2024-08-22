@@ -10,10 +10,12 @@ echo "$CI_PAGES_URL/$BASE_PATH"
 
 REF_NAMESPACE=x-pages
 RELEASES_PATH=$REF_NAMESPACE/releases
-git config --global credential.helper 'store'
+git config credential.helper 'store'
 rm ~/.git-credentials
 echo "https://oauth2:${PIPELINE_ACCESS_TOKEN}@gitlab.protontech.ch" > ~/.git-credentials
 echo "Done adding token: ${PIPELINE_ACCESS_TOKEN}"
+echo "Config:"
+git config --local --list
 
 if ! git fetch origin "+refs/$RELEASES_PATH:refs/$RELEASES_PATH"; then
     echo "Setting up pages storage..."
