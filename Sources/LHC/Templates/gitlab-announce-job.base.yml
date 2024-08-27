@@ -5,7 +5,6 @@
     {% block announce_release_vars %}
     GIT_SUBMODULE_STRATEGY: none
     GIT_DEPTH: 1
-    LHC: git-lhc
     {%- endblock +%}
   stage: {%+ block announce_release_stage %}cleanup{% endblock +%}
   tags:
