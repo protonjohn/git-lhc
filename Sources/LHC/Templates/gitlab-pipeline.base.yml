@@ -30,7 +30,7 @@ variables:
 {% if config.distribution.sparkle %}
 {% block sparkle_variables %}
   SPARKLE_XML_FILE: "sparkle.xml"
-  APPCAST_URL: "https://example.org/sparkle.xml"
+  APPCAST_URL: "https://protonvpn.com/download/macos-update3.xml"
 {% endif %}
 {% endif %}
 
@@ -351,6 +351,11 @@ cleanup:announce:tag:
   needs:
     - *child_pipeline_needs
     - job: pages
+    - job: "build:{{ config.name }}:all"
+      parallel:
+        matrix:
+         - TARGET: app
+           CONFIGURATION: {{ configuration }}
     {% if train == "macOS" %}
     {% if channel == "alpha" or channel == "releaseCandidate" %} # Alpha and RC are for release candidates
     - job: artifactlift-release-candidate-artifacts
@@ -427,7 +432,7 @@ pages:
     expire_in: 7 days
 {% endif %}
     paths:
-      - public
+      - artifacts/sparkle.xml
 {% if not release.tagName %} # Only build pages in MR pipelines if the template files have changed
   rules:
     - if: $CI_PIPELINE_SOURCE == "parent_pipeline"

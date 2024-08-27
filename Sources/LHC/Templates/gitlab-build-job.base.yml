@@ -1,6 +1,10 @@
 {% block build_job_name %}build:{{ config.name }}:all{% endblock %}:
 {% block build_header %}
 {% endblock %}
+  variables:
+    GIT_SUBMODULE_STRATEGY: normal
+    GIT_SUBMODULE_DEPTH: 1
+    GIT_SUBMODULE_FORCE_HTTPS: "true"
   stage: {%+ block build_stage %}build{% endblock +%}
   tags:
     {% block build_tags %}
