@@ -23,6 +23,8 @@ unless ($timestamp = ENV["TIMESTAMP"])
     $timestamp = `date +"%y%m%d%H%M"`.strip
 end
 
+$train = "{{ train }}"
+
 ## Basic setup/configuration functions
 
 def die(string)
@@ -105,8 +107,8 @@ $options = {
     {%- if config.build.dmgConfigPath -%}
     :dmg_config => "{{ config.build.dmgConfigPath }}",
     {% endif %}
-    {% if config.distribution.appStore.testFlightGroup %}
-    :testflight_groups => ["{{ config.distribution.appStore.testFlightGroup }}"],
+    {% if config.distribution.appStore.testflightGroup %}
+    :testflight_groups => ["{{ config.distribution.appStore.testflightGroup }}"],
     {% endif %}
     {% endblock %}
 }
@@ -346,6 +348,10 @@ private_lane :promote_testflight_release do |arguments|
 
     app = Spaceship::ConnectAPI::App.find($app_identifier)
     build = app.get_builds(filter: { :version => $options[:build_number] }, limit: 1).first
+
+    if not build 
+        raise "No builds matched the provided version number #{$options[:build_number]}. Task failed."
+    end
 
     groups = $options[:testflight_groups].map { |name|
         app.get_beta_groups(filter: { :name => name }, limit: 1).first
@@ -751,6 +757,7 @@ lane :testit do |arguments|
             :cloned_source_packages_path,
             :disable_package_automatic_updates,
             :skip_package_dependencies_resolution,
+            :slack_channel => $options[:results_slack_channel]
             {% endblock %}
         ])
         {% endblock %}
@@ -837,7 +844,7 @@ lane :announceit do |arguments|
     end
     {% endblock %}
 
-    channel = get_or_die($options, :slack_channel)
+    channel = get_or_die($options, :release_slack_channel)
     message = get_or_die($options, :slack_message)
 
     if $options[:slack_dry_run]

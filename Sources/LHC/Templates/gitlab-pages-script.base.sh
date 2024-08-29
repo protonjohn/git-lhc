@@ -10,6 +10,8 @@ echo "$CI_PAGES_URL/$BASE_PATH"
 
 REF_NAMESPACE=x-pages
 RELEASES_PATH=$REF_NAMESPACE/releases
+git config remote.origin.url "https://oauth2:${PIPELINE_ACCESS_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+
 if ! git fetch origin "+refs/$RELEASES_PATH:refs/$RELEASES_PATH"; then
     echo "Setting up pages storage..."
     git worktree add --detach public
@@ -20,6 +22,7 @@ if ! git fetch origin "+refs/$RELEASES_PATH:refs/$RELEASES_PATH"; then
 else
     echo "Checking out pages storage..."
     git update-ref refs/heads/ci/$RELEASES_PATH refs/$RELEASES_PATH
+    git worktree prune
     git worktree add public ci/$RELEASES_PATH
 fi
 
