@@ -104,8 +104,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-system",
       "state" : {
-        "revision" : "025bcb1165deab2e20d4eaba79967ce73013f496",
-        "version" : "1.2.1"
+        "revision" : "d2ba781702a1d8285419c15ee62fd734a9437ff5",
+        "version" : "1.3.2"
       }
     },
     {
@@ -113,7 +113,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/protonjohn/SwiftGit2",
       "state" : {
-        "revision" : "a7c723c68cd8557e8ee71ff4944a8940249656ab"
+        "revision" : "66b5acd3e2962ff6ff67bf76e1a466505b0cba88",
+        "version" : "0.12.0"
       }
     },
     {
