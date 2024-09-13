@@ -24,7 +24,7 @@
         "configuration:${CONFIGURATION}"
         "buildlog_path:{{ block.artifacts_dir }}"
         "output_directory:{{ block.artifacts_dir }}"
-        "result_bundle_path:{{ block.artifacts_dir }}"
+        "result_bundle_path:{{ block.artifacts_dir }}/{{ config.name }}-test-$CI_JOB_ID.xcresult"
         "derived_data_path:$DERIVED_DATA_PATH"
         "disable_package_automatic_updates:true"
         "skip_package_dependencies_resolution:true"
