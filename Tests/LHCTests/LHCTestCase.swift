@@ -67,7 +67,11 @@ class LHCTestCase: XCTestCase {
             
         }
 
-        Internal.promptUser = { _ in
+        Internal.promptUser = { prompt in
+            // We don't want to edit files, but otherwise we want to approve everything.
+            if prompt == "Edit? (y/N) " {
+                return "n"
+            }
             return "y"
         }
 

@@ -169,6 +169,9 @@ struct Attr: ParsableCommand {
         @Option(help: "Push to a remote after adding the attribute.")
         var push: String?
 
+        @Flag(help: "Overwrite any existing attributes with the same name.")
+        var force: Bool = false
+
         @Argument()
         var attribute: ConventionalCommit.Trailer
 
@@ -198,7 +201,7 @@ struct Attr: ParsableCommand {
                case let attributes = note.attributes,
                let trailers = attributes.trailers {
                 if let value = trailers[key] {
-                    guard Internal.promptForConfirmation("\(key) is already defined as '\(value)'.") else {
+                    guard force || Internal.promptForConfirmation("\(key) is already defined as '\(value)'.") else {
                         throw AttrError.userAborted
                     }
                 }
