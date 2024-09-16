@@ -456,70 +456,111 @@ extension Repositoryish {
         }
     }
 
+    private func conventionalCommits(
+        in range: ReleaseRange,
+        train: Trains.TrainImpl? = nil,
+        checklistRefNames: [String]? = nil,
+        commitCache: inout [ObjectID: ConventionalCommit],
+        objectChecklistNames: inout [ObjectID: [String]]
+    ) throws -> (parsed: [(oid: OID, cc: ConventionalCommit)], rejected: [Commitish]) {
+        let (last, release, _) = range
+        let lastTarget = last?.object.commitOid
+        guard let releaseTarget = release.commitOid else {
+            throw GitError(
+                code: .invalid,
+                detail: .object,
+                description: "\(release.oid) should be either a tag or a commit"
+            )
+        }
+
+        var badCommits: [Commitish] = []
+        var seen: Set<ObjectID> = []
+
+        let repoCommits = try commits(from: releaseTarget, since: lastTarget)
+        let commits: [(oid: OID, cc: ConventionalCommit)] = repoCommits.compactMap { commit in
+            do {
+                defer {
+                    seen.insert(commit.oid)
+                }
+
+                var attributes: [Trailer]?
+                if let attrsRef = train?.attrsRef,
+                   let note = try? note(for: commit.oid, notesRef: attrsRef) {
+                    attributes = note.attributes.trailers
+                }
+
+                if let checklistRefNames {
+                    let checklists = checklistNames(fromRefNames: checklistRefNames, withNotesFor: commit.oid)
+                    objectChecklistNames[commit.oid] = (checklists.isEmpty ? nil : checklists)
+                }
+
+                // Attempt to properly parse a conventional commit. If we can't, we'll fake one using the
+                // commit subject and body.
+                let cc: ConventionalCommit
+                if let cached = commitCache[commit.oid] {
+                    return seen.contains(commit.oid) ?
+                        nil : (commit.oid, cached) // We don't care about commits we've seen already
+                } else {
+                    cc = try ConventionalCommit(message: commit.message, attributes: attributes)
+                    commitCache[commit.oid] = cc
+                }
+                guard let categories = train?.linter.requireCommitTypes else {
+                    return (commit.oid, cc)
+                }
+
+                guard cc.header.type == "merge" ||
+                        cc.header.type == "revert" ||
+                        categories.contains(cc.header.type) == true else {
+                    badCommits.append(commit)
+                    return nil
+                }
+
+                return (commit.oid, cc)
+            } catch {
+                badCommits.append(commit)
+                return nil
+            }
+        }
+        return (commits, badCommits)
+    }
+
     private func releases(
         fromRanges ranges: [ReleaseRange],
         untaggedRangeReleaseChannel: ReleaseChannel = .production,
         forceLatestVersionTo forcedVersion: Version? = nil,
-        train: Trains.TrainImpl? = nil
+        train: Trains.TrainImpl? = nil,
+        includeAllMessages: Bool = true
     ) throws -> ([Release], badCommits: [Commitish]) {
         var versionsSoFar: [Version] = []
         var result: [Release] = []
+
+        // Prereleases can have overlapping commits, so best to save time parsing them if possible.
+        var commitCache: [ObjectID: ConventionalCommit] = [:]
+        let checklistRefNames = try? checklistRefs(train: train)
         var badCommits: [Commitish] = []
 
-        let checklistRefNames = try? checklistRefs(train: train)
-        var objectChecklistNames: [ObjectID: [String]] = [:]
-        // Prereleases can have overlapping commits, so best to save time parsing them if possible.
-        var conventionalCommits: [ObjectID: ConventionalCommit] = [:]
+        for releaseRange in ranges {
+            let (last, release, tagName) = releaseRange
+            var objectChecklistNames: [ObjectID: [String]] = [:]
 
-        for (last, release, tagName) in ranges {
-            let lastTarget = last?.object.commitOid
-            guard let releaseTarget = release.commitOid else {
-                throw GitError(
-                    code: .invalid,
-                    detail: .object,
-                    description: "\(release.oid) should be either a tag or a commit"
+            let commits: [(oid: OID, cc: ConventionalCommit)]
+            let badReleaseCommits: [Commitish]
+
+            // Unless we want to parse the entire commit history, only include information of the latest release.
+            if includeAllMessages || releaseRange.release.commitOid == ranges.last?.release.commitOid {
+                (commits, badReleaseCommits) = try conventionalCommits(
+                    in: releaseRange,
+                    train: train,
+                    checklistRefNames: checklistRefNames,
+                    commitCache: &commitCache,
+                    objectChecklistNames: &objectChecklistNames
                 )
+            } else {
+                commits = []
+                badReleaseCommits = []
             }
-            let repoCommits = try commits(from: releaseTarget, since: lastTarget)
-            let commits: [(oid: OID, cc: ConventionalCommit)] = repoCommits.compactMap { commit in
-                do {
-                    var attributes: [Trailer]?
-                    if let attrsRef = train?.attrsRef,
-                       let note = try? note(for: commit.oid, notesRef: attrsRef) {
-                        attributes = note.attributes.trailers
-                    }
 
-                    if let checklistRefNames {
-                        let checklists = checklistNames(fromRefNames: checklistRefNames, withNotesFor: commit.oid)
-                        objectChecklistNames[commit.oid] = (checklists.isEmpty ? nil : checklists)
-                    }
-
-                    // Attempt to properly parse a conventional commit. If we can't, we'll fake one using the
-                    // commit subject and body.
-                    let cc: ConventionalCommit
-                    if let cached = conventionalCommits[commit.oid] {
-                        cc = cached
-                    } else {
-                        cc = try ConventionalCommit(message: commit.message, attributes: attributes)
-                        conventionalCommits[commit.oid] = cc
-                    }
-                    guard let categories = train?.linter.requireCommitTypes else {
-                        return (commit.oid, cc)
-                    }
-
-                    guard cc.header.type == "merge" ||
-                            cc.header.type == "revert" ||
-                            categories.contains(cc.header.type) == true else {
-                        badCommits.append(commit)
-                        return nil
-                    }
-
-                    return (commit.oid, cc)
-                } catch {
-                    badCommits.append(commit)
-                    return nil
-                }
-            }
+            badCommits += badReleaseCommits
 
             #if false
             if badCommits > 0 {
@@ -679,7 +720,8 @@ extension Repositoryish {
 
             return try releases(
                 fromRanges: [(lastVersion, thisVersion.object, thisVersion.tagName)],
-                train: train
+                train: train,
+                includeAllMessages: !allowDirty
             ).0.first
         } else if allowDirty {
             // The tag hasn't been computed yet, so we'll need to create one.
@@ -704,7 +746,8 @@ extension Repositoryish {
                 fromRanges: ranges,
                 untaggedRangeReleaseChannel: untaggedReleaseChannel,
                 forceLatestVersionTo: forcedVersion,
-                train: train
+                train: train,
+                includeAllMessages: false
             ).0.last
         } else if let lastVersion {
             return try release(
