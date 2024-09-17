@@ -326,10 +326,13 @@ extension Array<ConventionalCommit> {
 
         var releaseBump = last.bumping(versionBump(train: train))
         if channel.isPrerelease {
-            let channelVersions = versions.filter { $0.releaseChannel == channel }
+            // If we're in a prerelease channel, check to see if any other prereleases exist with the same shortVersion.
+            // We want to make sure that the prerelease number is always unique among the releases that already exist.
+            let channelVersions = versions.filter {
+                $0.releaseChannel == channel && $0.shortVersion == releaseBump
+            }
 
-            if let lastChannelRelease = channelVersions.last,
-               lastChannelRelease.shortVersion == releaseBump {
+            if let lastChannelRelease = channelVersions.last {
                 releaseBump = lastChannelRelease
             }
             return releaseBump.bumpingPrerelease(channel: channel.rawValue)
