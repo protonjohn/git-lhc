@@ -75,7 +75,7 @@ end
 
 # this is for annoying things like tvos/appletvos 
 $deliver_platforms = {
-    "macos" => "macos",
+    "macos" => "osx",
     "ios" => "ios",
     "tvos" => "appletvos"
 }
@@ -822,9 +822,10 @@ lane :shipit do |arguments|
         {% block deliver %}
         deliver(
             {% block deliver_args %}
-            ipa: $options[:ipa],
             app_version: $options[:version_number],
             build_number: $options[:build_number],
+            platform: $deliver_platforms[$options.fetch(:platform, "ios")],
+            force: true,
             {% endblock %}
         )
         {% endblock %}
