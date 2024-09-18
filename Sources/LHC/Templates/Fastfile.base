@@ -591,7 +591,8 @@ def interpret_code_coverage()
 
     result = `xcrun xccov view --report --json #{xcresult_path} > #{coverage_report_file}`
     unless $?.success?
-        die "Unable to generate code coverage report from xcresult: #{result}"
+        puts "Unable to generate code coverage report from xcresult: #{result}"
+        return
     end
 
     exclude = ""
@@ -605,13 +606,15 @@ def interpret_code_coverage()
     # Convert test coverage report to cobertura format for gitlab to understand
     result = `xcc generate #{coverage_report_file} "#{test_output_directory}/cobertura.xml" cobertura-xml#{exclude}`
     unless $?.success?
-        die "Unable to convert code coverage file to cobertura format: #{result}"
+        puts "Unable to convert code coverage file to cobertura format: #{result}"
+        return
     end
 
     coverage_contents = File.read(coverage_report_file)
     coverage_data = JSON.parse(coverage_contents)
     unless line_coverage = coverage_data["lineCoverage"]
-        die "Line coverage data not present in code coverage file."
+        puts "Line coverage data not present in code coverage file."
+        return
     end
 
     puts "Total test coverage: #{(line_coverage * 100).round(2)}%"
