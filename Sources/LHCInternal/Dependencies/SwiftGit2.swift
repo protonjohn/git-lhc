@@ -336,8 +336,8 @@ extension TransferProgress {
             }
             let length = ObjectID.minimumLength(toLosslesslyRepresentStringsOf: oids, floor: 7)
 
-            let current = update.currentTarget.description.dropFirst(length)
-            let new = update.newTarget.description.dropFirst(length)
+            let current = update.currentTarget.description.prefix(length)
+            let new = update.newTarget.description.prefix(length)
             updateStrings.append(" + \(current)...\(new) \(update.source) -> \(update.destination)")
         }
 

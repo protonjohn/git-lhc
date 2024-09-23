@@ -33,4 +33,18 @@ class TrieTests: XCTestCase {
         XCTAssertEqual(t.maxPrefix, 4)
         XCTAssertEqual(t.count, 4)
     }
+
+    func testUUIDTries() {
+        var t = Trie<UInt8>()
+
+        var uuid1 = UUID().uuid
+        do {
+            let bytes = withUnsafeBytes(of: &uuid1) { Array($0) }
+            t.insert(bytes)
+            t.insert(bytes) // insert a second time to make sure prefix stays at 0
+        }
+
+        XCTAssertEqual(t.maxPrefix, 0)
+        XCTAssertEqual(t.count, 2)
+    }
 }
