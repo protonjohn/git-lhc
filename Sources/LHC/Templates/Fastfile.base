@@ -497,8 +497,7 @@ private_lane :sparkle_sign_update do |options|
 end
 
 private_lane :sparkle_download_and_save do |options|
-    # appcast_url = get_or_die($options, :appcast_url)
-    appcast_url = "https://protonvpn.com/download/macos-update3.xml"
+    appcast_url = get_or_die($options, :appcast_url)
 
     output_directory = rel_to_repo(get_or_die($options, :output_directory))
 
