@@ -482,25 +482,46 @@ private_lane :sparkle_sign_update do |options|
     sparkle_item = `envsubst '${APPCAST_SIGNATURE}' < "#{item_file}" 2> /dev/stdout`
     die "Could not create update xml file: #{sparkle_item}" unless $?.success?
 
+    sparkle_signature = "sparkle.signature"
+
     File.open("#{output_directory}/#{File.basename(item_file)}", 'w+') { |file|
         file.write(sparkle_item)
+        file.close()
+    }
+    File.open("#{output_directory}/#{sparkle_signature}", 'w+') { |file|
+        file.write(signature)
+        file.close()
+    }
+
+    die "Could not write sparkle.signature file" unless $?.success?
+end
+
+private_lane :sparkle_download_and_save do |options|
+    appcast_url = get_or_die($options, :appcast_url)
+
+    output_directory = rel_to_repo(get_or_die($options, :output_directory))
+
+    sparkle_xml_name = $options.fetch(:sparkle_xml_name, "sparkle_downloaded.xml")
+    sparkle_xml_contents = download(url: appcast_url)
+
+    File.open("#{output_directory}/#{sparkle_xml_name}", "w+") { |file|
+        file.write(sparkle_xml_contents)
+        file.close()
     }
 end
 
 private_lane :sparkle_append_item do |options|
     item_file = rel_to_repo(get_or_die($options, :sparkle_item_file))
-    sparkle_xml_file = rel_to_repo(get_or_die($options, :sparkle_xml_file))
+
+    output_directory = rel_to_repo(get_or_die($options, :output_directory))
+
+    sparkle_downloaded_name = $options.fetch(:sparkle_xml_name, "sparkle_downloaded.xml")
     sparkle_xml_name = $options.fetch(:sparkle_xml_name, "sparkle.xml")
 
-    sparkle_item = File.read(item_file)
-    sparkle_xml = File.read(sparkle_xml_file)
-
-    replace_identifier = $options.fetch(:sparkle_replace_identifier, "<!-- >8 Next release >8 -->\n")
-    sparkle_xml.sub!(replace_identifier, replace_identifier + sparkle_item)
-
-    File.open("#{output_directory}/#{sparkle_xml_name}", 'w') { |file|
-        file.write(sparkle_xml)
-    }
+    insertion_point = "<language>en<\\/language>"
+    sh(
+        "sed '/#{insertion_point}/r #{item_file}' '#{output_directory}/#{sparkle_downloaded_name}' > '#{output_directory}/#{sparkle_xml_name}'"
+    )
 end
 
 # This one is kind of a monster: manually crack open the Xcode project, find the named scheme on disk, and iterate
@@ -832,6 +853,8 @@ lane :shipit do |arguments|
         {% elif config.distribution.sparkle %}
         {% block sparkle %}
         sparkle_sign_update()
+        sparkle_download_and_save()
+        sparkle_append_item()
         {% endblock %}
         {% else %}{% block custom_shipit %}
         {# hic sunt dracones #}
@@ -855,6 +878,7 @@ lane :announceit do |arguments|
 
     channel = get_or_die($options, :release_slack_channel)
     message = get_or_die($options, :slack_message)
+    url = "https://***REMOVED***" # #test-adam
 
     if $options[:slack_dry_run]
         puts "channel: #{channel}, message: #{message}"
@@ -863,6 +887,7 @@ lane :announceit do |arguments|
             {% block slack_args %}
             message: message,
             channel: channel,
+            slack_url: url,
             success: $options.fetch(:slack_success, true),
             use_webhook_configured_username_and_icon: true,
             {% endblock %}

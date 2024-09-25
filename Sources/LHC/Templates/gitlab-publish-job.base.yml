@@ -78,11 +78,16 @@ pages:
     - pipeline: {%+ block parent_pipeline_id %}$PARENT_PIPELINE_ID{% endblock +%}
       job: '{% block parent_job_name %}prepare{% endblock %}'
     {% endblock %}
+    {% if train == "macOS" and channel != "alpha" %}
+    # For sparkle artifacts
+    - job: 'artifactlift-release-artifacts'
+    {% endif %}
   artifacts:
     name: "releases"
     expire_in: {%+ block release_pages_expiry %}never{% endblock +%}
     paths:
       - public
+      - artifacts/sparkle.xml
   {% block pages_footer %}
   {% endblock %}
 {% endblock %}
