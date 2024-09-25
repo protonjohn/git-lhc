@@ -15,7 +15,12 @@
     {% block announce_release_script %}
     - |
       {%+ filter indent:6 %}{% include "gitlab-pipeline-init.base.sh" %}{% endfilter %}
-    - fastlane announceit "slack_filename:$DESCRIBE_DIR/release/slack-message.txt"
+    - |
+      SLACK_FILENAME="$DESCRIBE_DIR/release/slack-message.txt"
+      if [ -d "$DESCRIBE_DIR/{{ config.name }}" ]; then
+          SLACK_FILENAME="$DESCRIBE_DIR/{{ config.name }}/slack-message.txt"
+      fi
+      fastlane announceit "slack_filename:$SLACK_FILENAME"
     {% if not target|attrs:config.trailers.releasePipeline %}
     - git fetch origin '+refs/notes/*:refs/notes/*'
     - mint run git-lhc attr add --force --train "{{ config.name }}" --channel "{{ config.releaseChannel }}" '{{ config.trailers.releasePipeline }}={{ config.build.ci.pipelineId }}'
