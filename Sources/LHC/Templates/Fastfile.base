@@ -482,11 +482,13 @@ private_lane :sparkle_sign_update do |options|
     sparkle_item = `envsubst '${APPCAST_SIGNATURE}' < "#{item_file}" 2> /dev/stdout`
     die "Could not create update xml file: #{sparkle_item}" unless $?.success?
 
+    sparkle_signature = "sparkle.signature"
+
     File.open("#{output_directory}/#{File.basename(item_file)}", 'w+') { |file|
         file.write(sparkle_item)
         file.close()
     }
-    File.open("#{output_directory}/sparkle.signature", 'w+') { |file|
+    File.open("#{output_directory}/#{sparkle_signature}", 'w+') { |file|
         file.write(signature)
         file.close()
     }
@@ -494,9 +496,9 @@ private_lane :sparkle_sign_update do |options|
     die "Could not write sparkle.signature file" unless $?.success?
 end
 
-# ugly implementation for now
 private_lane :sparkle_download_and_save do |options|
-    appcast_url = "https://protonvpn.com/download/macos-update3.xml" # get_or_die($options, :appcast_url)
+    # appcast_url = get_or_die($options, :appcast_url)
+    appcast_url = "https://protonvpn.com/download/macos-update3.xml"
 
     output_directory = rel_to_repo(get_or_die($options, :output_directory))
 
@@ -507,10 +509,6 @@ private_lane :sparkle_download_and_save do |options|
         file.write(sparkle_xml_contents)
         file.close()
     }
-
-    # debug
-    file_size = File.size("#{output_directory}/#{sparkle_xml_name}")
-    puts "File size of #{sparkle_xml_name}: #{file_size}"
 end
 
 private_lane :sparkle_append_item do |options|
@@ -521,14 +519,10 @@ private_lane :sparkle_append_item do |options|
     sparkle_downloaded_name = $options.fetch(:sparkle_xml_name, "sparkle_downloaded.xml")
     sparkle_xml_name = $options.fetch(:sparkle_xml_name, "sparkle.xml")
 
-    # insertion_point = "\<language\>en\<\/language\>"
+    insertion_point = "<language>en<\\/language>"
     sh(
-        "sed '/<language>en<\\/language>/r #{item_file}' '#{output_directory}/#{sparkle_downloaded_name}' > '#{output_directory}/#{sparkle_xml_name}'"
+        "sed '/#{insertion_point}/r #{item_file}' '#{output_directory}/#{sparkle_downloaded_name}' > '#{output_directory}/#{sparkle_xml_name}'"
     )
-
-    # debug
-    file_size = File.size("#{output_directory}/#{sparkle_xml_name}")
-    puts "File size of #{sparkle_xml_name}: #{file_size}"
 end
 
 # This one is kind of a monster: manually crack open the Xcode project, find the named scheme on disk, and iterate
