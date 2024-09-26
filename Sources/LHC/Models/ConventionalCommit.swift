@@ -228,8 +228,8 @@ extension ConventionalCommit {
 
         let subject = components.removeFirst()
 
-        if subject.hasPrefix("Merge") || subject.hasPrefix("Revert") {
-            header = try Header.formattedMessageParser.parse(subject)
+        if let formattedHeader = Self.parseMergeOrRevertCommit(subject: String(subject)) {
+            header = formattedHeader
         } else {
             header = try Header.parser.parse(subject)
         }
@@ -248,6 +248,14 @@ extension ConventionalCommit {
             trailers: trailers,
             attributes: attributes
         )
+    }
+
+    public static func parseMergeOrRevertCommit(subject: String) -> Header? {
+        guard subject.hasPrefix("Merge") || subject.hasPrefix("Revert") else {
+            return nil
+        }
+
+        return try? Header.formattedMessageParser.parse(subject)
     }
 
     public func trailers(named name: String) -> [Trailer] {

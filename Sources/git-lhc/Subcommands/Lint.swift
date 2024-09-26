@@ -121,16 +121,32 @@ struct Lint: ParsableCommand, VerboseCommand {
             throw LintingError(commit, .missingSubject)
         }
 
-        try lint(subject: subject, of: commit, train: train)
+        let header = ConventionalCommit.parseMergeOrRevertCommit(subject: subject)
 
-        if components.count > 1 {
-            try lint(paragraphs: components[1...], of: commit, train: train)
+        switch header?.type {
+        case "merge":
+            printIfVerbose("Skipping merge commit for \(header!.summary).\n")
+
+        // This is the default case (neither merge nor revert). We want to lint the subject as well as the rest of the
+        // message, whereas for revert commits we only care about what comes after the subject.
+        case nil:
+            try lint(subject: subject, of: commit, train: train)
+            fallthrough
+
+        case "revert":
+            if components.count > 1 {
+                try lint(paragraphs: components[1...], of: commit, train: train)
+            }
+
+            let branchName = branch?.name ?? Internal.branchName
+            try lintTrailers(of: commit, branchName: branchName, train: train)
+
+            printIfVerbose("No issues found.\n")
+
+        default:
+            throw LintingError(commit, .subjectHasUnrecognizedCategory(category: header!.type))
         }
 
-        let branchName = branch?.name ?? Internal.branchName
-        try lintTrailers(of: commit, branchName: branchName, train: train)
-
-        printIfVerbose("No issues found.\n")
     }
 
     mutating func lint(subject: String, of commit: Commitish, train: Trains.TrainImpl?) throws {
@@ -138,10 +154,6 @@ struct Lint: ParsableCommand, VerboseCommand {
         if let subjectMaxLength = train?.linter.maxSubjectLength,
            subject.count > subjectMaxLength {
             throw LintingError(commit, .subjectTooLong(configuredMax: subjectMaxLength))
-        }
-
-        if subject.hasPrefix("Merge") || subject.hasPrefix("Revert") {
-            return // Allow Merge and Revert commits
         }
 
         let regex = "^([a-z0-9]+)(\\([a-zA-Z0-9\\-\\_]+\\)){0,1}(!){0,1}: .*"
