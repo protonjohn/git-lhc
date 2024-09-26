@@ -47,6 +47,10 @@
     {%- endblock -%}
     {% endif %}
     {% endblock %}
+  rules:
+    {% block publish_rules %}
+    - when: always
+    {% endblock %}
 {% block publish_footer %}
 {% endblock %}
 
