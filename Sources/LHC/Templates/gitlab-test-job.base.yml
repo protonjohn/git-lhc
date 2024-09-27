@@ -35,7 +35,9 @@
         "build_products_dir:${DERIVED_DATA_PATH}/Build/Products"
         {% endblock %}
       )
+      FASTLANE_ARGS=("${FASTLANE_ARGS[@]}" "${FASTLANE_EXTRA_ARGS[@]}")
       echo Running: fastlane testit "${FASTLANE_ARGS[@]}"
+
       fastlane testit "${FASTLANE_ARGS[@]}"
     {% endblock %}
   needs:

@@ -16,6 +16,7 @@
       - TARGET: app
         CONFIGURATION: [{% block build_app_configurations %}Release{% endblock %}]
       - TARGET: tests
+        DESTINATION: [{% block build_test_destinations %}Default{% endblock %}]{# Reserved for client use (for example, simulator vs. on-device tests) #}
         CONFIGURATION: [{% block build_test_configurations %}Debug{% endblock %}]
   {% endblock %}
   script:
@@ -35,9 +36,17 @@
         "disable_package_automatic_updates:true"
         {% endblock %}
       )
+      FASTLANE_ARGS=("${FASTLANE_ARGS[@]}" "${FASTLANE_EXTRA_ARGS[@]}")
+
       case "$TARGET" in
-        app) fastlane buildit "${FASTLANE_ARGS[@]}" ;;
-        tests) fastlane testit build_for_testing:true "${FASTLANE_ARGS[@]}" ;;
+        app)
+          echo Running fastlane buildit "${FASTLANE_ARGS[@]}"
+          fastlane buildit "${FASTLANE_ARGS[@]}"
+          ;;
+        tests)
+          echo Running fastlane testit build_for_testing:true "${FASTLANE_ARGS[@]}"
+          fastlane testit build_for_testing:true "${FASTLANE_ARGS[@]}"
+          ;;
         *) exit 1 ;;
       esac
     {% endblock %}

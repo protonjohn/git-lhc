@@ -25,6 +25,9 @@
             "output_directory:{{ config.build.outputDirectory }}/$configuration"
             {% endblock %}
           )
+          FASTLANE_ARGS=("${FASTLANE_ARGS[@]}" "${FASTLANE_EXTRA_ARGS[@]}")
+          echo Running: fastlane shipit "${FASTLANE_ARGS[@]}"
+
           fastlane shipit "${FASTLANE_ARGS[@]}"
       done
     {% endblock %}
