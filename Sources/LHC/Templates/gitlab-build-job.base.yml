@@ -16,8 +16,8 @@
       - TARGET: app
         CONFIGURATION: [{% block build_app_configurations %}Release{% endblock %}]
       - TARGET: tests
-        DESTINATION: [{% block build_test_destinations %}Default{% endblock %}]{# Reserved for client use (for example, simulator vs. on-device tests) #}
         CONFIGURATION: [{% block build_test_configurations %}Debug{% endblock %}]
+        DESTINATION: [{% block build_test_destinations %}Default{% endblock %}]{# Reserved for client use (e.g., simulator vs. on-device tests) #}
   {% endblock %}
   script:
     {% block build_script %}

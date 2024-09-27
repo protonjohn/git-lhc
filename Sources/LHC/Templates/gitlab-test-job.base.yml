@@ -9,6 +9,7 @@
   {% block test_vars %}
   variables:
     CONFIGURATION: {%+ block test_build_configuration %}Debug{% endblock +%}
+    DESTINATION: {%+ block test_build_destination %}Default{% endblock +%}{# Make sure this matches the destination in the build job #}
     TESTPLAN_NAME: {%+ block testplan_name %}{{ config.build.productName }}-{{ config.build.platform|lowercase }}{% endblock +%}
   {% endblock %}
   script:
@@ -52,6 +53,7 @@
         matrix:
           - TARGET: tests
             CONFIGURATION: {{ block.test_build_configuration }}
+            DESTINATION: {{ block.test_build_destination }}
     {% endblock %}
   artifacts:
     {% block test_job_artifacts %}
