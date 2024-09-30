@@ -47,6 +47,9 @@ public enum GitlabEnvironment: String, EnvironmentVariable {
     case commitBeforeChange = "CI_COMMIT_BEFORE_SHA"
     case mergeRequestDiffBaseSha = "CI_MERGE_REQUEST_DIFF_BASE_SHA"
     case mergeRequestSourceBranch = "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
+    case mergeRequestSourceBranchSha = "CI_MERGE_REQUEST_SOURCE_BRANCH_SHA"
+    case mergeRequestTargetBranch = "CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    case mergeRequestTargetBranchSha = "CI_MERGE_REQUEST_TARGET_BRANCH_SHA"
 
     public var defaultValue: String? { nil }
 }

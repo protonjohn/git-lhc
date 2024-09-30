@@ -89,7 +89,13 @@ struct Lint: ParsableCommand, VerboseCommand {
 
     func lintBaseFromGitlabCI(for repo: Repositoryish, head: ReferenceType) throws -> ObjectID? {
         var refName: String?
-        let envVars: [GitlabEnvironment] = [.commitBeforeChange, .mergeRequestDiffBaseSha, .defaultBranch]
+        let envVars: [GitlabEnvironment] = [
+            .commitBeforeChange,
+            .mergeRequestDiffBaseSha,
+            .mergeRequestTargetBranchSha,
+            .defaultBranch
+        ]
+
         for envVar in envVars {
             if let value = envVar.value, !value.isEmpty, value != .nullSha {
                 refName = value
