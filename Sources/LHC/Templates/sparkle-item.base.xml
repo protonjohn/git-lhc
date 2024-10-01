@@ -4,8 +4,6 @@
 #}<item>	
     {% block item %}
     <title>{% block title %}Version {{ version }}{% endblock %}</title>
-    <sparkle:version>{% block version %}{% include "timestamp.base" %}{% endblock %}</sparkle:version>
-    <sparkle:shortVersionString>{% block short_version %}{{ short_version }}{% endblock %}</sparkle:version>
     <pubDate>{% block publish_date %}{{ now|format_date:"EEEE, d MMM yyyy HH:mm:ss Z" }}{% endblock %}</pubDate>
     {% if config.distribution.sparkle.minimumSystemVersion %}
     <sparkle:minimumSystemVersion>{{ config.distribution.sparkle.minimumSystemVersion }}</sparkle:minimumSystemVersion>
@@ -36,6 +34,8 @@
         ]]>
     </description>
     <enclosure url="{% block download_url %}https://example.org/{{ version }}/{{ config.build.productName }}.dmg{% endblock %}"
+               sparkle:version="{% block version %}{% include "timestamp.base" %}{% endblock %}"
+               sparkle:shortVersionString="{% block short_version %}{{ short_version }}{% endblock %}"
 	       $APPCAST_SIGNATURE
 	       type="application/octet-stream" />
     {% endblock %}
