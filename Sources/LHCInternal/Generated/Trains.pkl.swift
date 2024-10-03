@@ -158,6 +158,8 @@ public protocol Trains_AppStore: PklRegisteredType, DynamicallyEquatable, Hashab
 
     var announceForum: String? { get }
 
+    var languages: String? { get }
+
     var userProperties: [String: String]? { get }
 }
 
@@ -792,17 +794,22 @@ extension Trains {
         /// The forum in which to announce the release (slack channel, mailing list, etc)
         public var announceForum: String?
 
+        /// The comma-separated list of supported languages
+        public var languages: String?
+
         public var userProperties: [String: String]?
 
         public init(
             action: AppStoreAction,
             testflightGroup: String?,
             announceForum: String?,
+            languages: String?,
             userProperties: [String: String]?
         ) {
             self.action = action
             self.testflightGroup = testflightGroup
             self.announceForum = announceForum
+            self.languages = languages
             self.userProperties = userProperties
         }
     }
