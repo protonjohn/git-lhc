@@ -153,6 +153,10 @@ open class AppStore {
 
     /// The forum in which to announce the release (slack channel, mailing list, etc)
     announceForum: String?
+
+    /// The list of supported languages
+    languages: [String]?
+
     userProperties: Mapping<String, String>? = null
 }
 
