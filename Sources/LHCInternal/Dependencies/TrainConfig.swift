@@ -258,6 +258,7 @@ extension Trains.AppStoreImpl: Encodable {
 
         try container.encode(action.rawValue, forKey: PklCodingKey(string: "action"))
         try container.encode(announceForum, forKey: PklCodingKey(string: "announceForum"))
+        try container.encode(languages, forKey: PklCodingKey(string: "languages"))
         try container.encode(userProperties, forKey: PklCodingKey(string: "userProperties"))
         try container.encode(testflightGroup, forKey: PklCodingKey(string: "testflightGroup"))
     }
