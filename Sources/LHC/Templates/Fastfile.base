@@ -341,25 +341,6 @@ private_lane :setup_codesigning do |arguments|
     end
 end
 
-private_lane :promote_testflight_release do |arguments|
-    testflight_groups = get_or_die($options, :testflight_groups)
-
-    require 'spaceship'
-
-    app = Spaceship::ConnectAPI::App.find($app_identifier)
-    build = app.get_builds(filter: { :version => $options[:build_number] }, limit: 1).first
-
-    if not build 
-        raise "No builds matched the provided version number #{$options[:build_number]}. Task failed."
-    end
-
-    groups = $options[:testflight_groups].map { |name|
-        app.get_beta_groups(filter: { :name => name }, limit: 1).first
-    }
-
-    build.add_beta_groups(beta_groups: groups)
-end
-
 def unzip_build_products()
     build_products_zip = rel_to_repo(get_or_die($options, :build_products_zip))
     derived_data_path = $repo_path + "/.DerivedData"
@@ -828,7 +809,9 @@ lane :shipit do |arguments|
             {% block testflight_upload_args %}
             ipa: $options[:ipa],
             app_platform: $deliver_platforms[$options.fetch(:platform, "ios")],
-            distribute_external: true,
+            distribute_external: false,
+            app_version: $options[:version_number],
+            build_number: $options[:build_number],
             groups: $options[:testflight_groups],
             changelog: $options.fetch(:changelog, ""),
             {% endblock %}
@@ -836,7 +819,19 @@ lane :shipit do |arguments|
         {% endblock %}
         {% elif config.distribution.appStore.action == "Promote" %}
         sign_in_to_app_store_connect()
-        promote_testflight_release()
+
+        upload_to_testflight(
+            {% block testflight_upload_args %}
+            ipa: nil,
+            app_platform: $deliver_platforms[$options.fetch(:platform, "ios")],
+            distribute_only: true, # We uploaded in the previous step - this time we just want to distribute
+            distribute_external: true,
+            app_version: $options[:version_number],
+            build_number: $options[:build_number],
+            groups: $options[:testflight_groups],
+            changelog: $options.fetch(:changelog, ""),
+            {% endblock %}
+        )
         {% elif config.distribution.appStore.action == "Submit" %}
         sign_in_to_app_store_connect()
 
