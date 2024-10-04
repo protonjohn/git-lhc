@@ -8,26 +8,31 @@
  #}
 echo "$CI_PAGES_URL/$BASE_PATH"
 
-# Making sure BASE_PATH exists, especially for merge results pipelines
-mkdir -p public/$BASE_PATH
-
+WORKTREE_PATH=./public
 REF_NAMESPACE=x-pages
 RELEASES_PATH=$REF_NAMESPACE/releases
 git config remote.origin.url "https://oauth2:${PIPELINE_ACCESS_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
 
 if ! git fetch origin "+refs/$RELEASES_PATH:refs/$RELEASES_PATH"; then
     echo "Setting up pages storage..."
-    git worktree add --detach public
-    cd public
+    git worktree add --detach "$WORKTREE_PATH"
+    cd "$WORKTREE_PATH"
     git checkout --orphan ci/$RELEASES_PATH
     git commit --allow-empty -m "pages: initial commit"
     cd ..
 else
     echo "Checking out pages storage..."
+
+    # If the directory exists, remove it first
+    [ ! -d "$WORKTREE_PATH" ] || rm -r "$WORKTREE_PATH"
+
     git update-ref refs/heads/ci/$RELEASES_PATH refs/$RELEASES_PATH
     git worktree prune
-    git worktree add public ci/$RELEASES_PATH
+    git worktree add "$WORKTREE_PATH" ci/$RELEASES_PATH
 fi
+
+# Making sure BASE_PATH exists, especially for merge results pipelines
+mkdir -p "$WORKTREE_PATH/$BASE_PATH"
 
 {#
  # Hack to get the path component of the URL, so we can tell the doc generation what the base path is
@@ -36,10 +41,10 @@ fi
  # and then the sed command strips the leading slash)
  #}
 PROJECT_PATH=$(awk -F "$CI_PAGES_DOMAIN" '{print $2}' <<< "$CI_PAGES_URL" | sed 's/^\///')
-xcrun docc convert --hosting-base-path "${PROJECT_PATH}/$BASE_PATH" --output-path "public/$BASE_PATH" $DOCC_PATH
+xcrun docc convert --hosting-base-path "${PROJECT_PATH}/$BASE_PATH" --output-path "$WORKTREE_PATH/$BASE_PATH" $DOCC_PATH
 
 # stash the pages output in a separate refs namespace, since it's just being used for storage, and push it.
-cd public
+cd "$WORKTREE_PATH"
 git add "$BASE_PATH"
 git commit -m "pages: {{ config.name }} release {{ version }} $TIMESTAMP"
 
