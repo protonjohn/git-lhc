@@ -863,7 +863,8 @@ lane :shipit do |arguments|
 
         {% block postship %}
 
-        if (api_key = $secrets[:sentry_api_key]) and
+        if $options[:sentry_upload] and
+           (api_key = $secrets[:sentry_api_key]) and
            (auth_token = $secrets[:sentry_auth_token]) and
            (org_slug = $secrets[:sentry_org_slug]) and
            (project_slug = $secrets[:sentry_project_slug])
