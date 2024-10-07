@@ -88,7 +88,6 @@ struct Lint: ParsableCommand, VerboseCommand {
     }
 
     func lintBaseFromGitlabCI(for repo: Repositoryish, head: ReferenceType) throws -> ObjectID? {
-        var refName: String?
         let envVars: [GitlabEnvironment] = [
             .commitBeforeChange,
             .mergeRequestDiffBaseSha,
@@ -97,18 +96,19 @@ struct Lint: ParsableCommand, VerboseCommand {
         ]
 
         for envVar in envVars {
-            if let value = envVar.value, !value.isEmpty, value != .nullSha {
-                refName = value
-                break
+            guard let value = envVar.value,
+                  !value.isEmpty,
+                  value != .nullSha,
+                  let oid = try? repo.oid(for: value),
+                  oid != head.oid,
+                  (try? repo.isReachable(oid, from: head.oid)) == true else {
+                continue
             }
+
+            return oid
         }
 
-        guard let refName else { return nil }
-
-        guard let oid = try repo.oid(for: refName) else { return nil }
-        guard oid != head.oid, try repo.isReachable(oid, from: head.oid) else { return nil }
-
-        return oid
+        return nil
     }
 
     mutating func lint(commit: Commitish, branch: Branchish?, train: Trains.TrainImpl?) throws {
