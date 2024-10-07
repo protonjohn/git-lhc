@@ -473,6 +473,7 @@ private_lane :sparkle_sign_update do |options|
         file.write(sparkle_item)
         file.close()
     }
+
     File.open("#{output_directory}/#{sparkle_signature}", 'w+') { |file|
         file.write(signature)
         file.close()
@@ -482,16 +483,29 @@ private_lane :sparkle_sign_update do |options|
 end
 
 private_lane :sparkle_download_and_save do |options|
+    require 'net/http'
+
     appcast_url = get_or_die($options, :appcast_url)
 
     output_directory = rel_to_repo(get_or_die($options, :output_directory))
-
     sparkle_xml_name = $options.fetch(:sparkle_xml_name, "sparkle_downloaded.xml")
-    sparkle_xml_contents = download(url: appcast_url)
+
+    # We use net/http instead of Fastlane's download lane so that we can set request headers if needed.
+    uri = URI(appcast_url)
+    req = Net::HTTP::Get.new(uri)
+
+    if (sparkle_download_headers = $options[:sparkle_download_headers])
+        sparkle_download_headers.each_key { |key|
+            req[key] = sparkle_download_headers[key]
+        }
+    end
+
+    res = Net::HTTP.start(uri.hostname, uri.port) { |http|
+        http.request(req)
+    }
 
     File.open("#{output_directory}/#{sparkle_xml_name}", "w+") { |file|
-        file.write(sparkle_xml_contents)
-        file.close()
+        file.write(res.body)
     }
 end
 
