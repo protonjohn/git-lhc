@@ -97,9 +97,9 @@ $options = {
     :output_directory => "{{ config.build.outputDirectory|default:"output" }}",
     :keychain_name => "{{ config.build.match.keychainName|default:"fastlane" }}",
     {% if config.distribution.appStore.announceForum %}
-    :release_slack_channel => "{{ config.distribution.appStore.announceForum }}",
+    :announce_forum => "{{ config.distribution.appStore.announceForum }}",
     {% elif config.distribution.sparkle.announceForum %}
-    :release_slack_channel => "{{ config.distribution.sparkle.announceForum }}",
+    :announce_forum => "{{ config.distribution.sparkle.announceForum }}",
     {% endif %}
     {%- if config.build.announceForum -%}
     :results_slack_channel => "{{ config.build.announceForum }}",
@@ -893,16 +893,26 @@ lane :announceit do |arguments|
         filename = rel_to_repo(filename)
         $options[:slack_message] = File.read(filename)
     end
-    {% endblock %}
 
-    channel = get_or_die($options, :release_slack_channel)
+    channel = nil
+    url = ENV["SLACK_URL"]
+    forum = get_or_die($options, :announce_forum)
+
+    if forum.start_with?("https://") # webhook url
+        url = forum
+    else
+        channel = forum
+    end
+
     message = get_or_die($options, :slack_message)
+    {% endblock %}
 
     if $options[:slack_dry_run]
         puts "channel: #{channel}, message: #{message}"
     else
         slack(
             {% block slack_args %}
+            pretext: "Release Announcement",
             message: message,
             channel: channel,
             success: $options.fetch(:slack_success, true),
