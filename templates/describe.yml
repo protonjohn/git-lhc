@@ -20,7 +20,7 @@ spec:
       default: describe
     expire_in:
       default: 2 days
-    # a *comma-separated* list of trains.
+    # a *whitespace-separated* list of trains.
     trains:
       type: string
 
