@@ -89,9 +89,9 @@ struct Lint: ParsableCommand, VerboseCommand {
 
     func lintBaseFromGitlabCI(for repo: Repositoryish, head: ReferenceType) throws -> ObjectID? {
         let envVars: [GitlabEnvironment] = [
-            .commitBeforeChange,
             .mergeRequestDiffBaseSha,
             .mergeRequestTargetBranchSha,
+            .commitBeforeChange,
             .defaultBranch
         ]
 
