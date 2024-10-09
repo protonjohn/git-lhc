@@ -897,7 +897,6 @@ lane :announceit do |arguments|
 
     channel = get_or_die($options, :release_slack_channel)
     message = get_or_die($options, :slack_message)
-    url = "https://***REMOVED***" # #test-adam
 
     if $options[:slack_dry_run]
         puts "channel: #{channel}, message: #{message}"
@@ -906,7 +905,6 @@ lane :announceit do |arguments|
             {% block slack_args %}
             message: message,
             channel: channel,
-            slack_url: url,
             success: $options.fetch(:slack_success, true),
             use_webhook_configured_username_and_icon: true,
             {% endblock %}
