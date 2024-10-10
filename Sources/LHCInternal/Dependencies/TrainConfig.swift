@@ -184,6 +184,7 @@ extension Trains.PipelinePropertiesImpl: Encodable {
         try container.encode(pagesUrl, forKey: PklCodingKey(string: "pagesUrl"))
         try container.encode(eventType, forKey: PklCodingKey(string: "eventType"))
         try container.encode(pipelineId, forKey: PklCodingKey(string: "pipelineId"))
+        try container.encode(pipelineUrl, forKey: PklCodingKey(string: "pipelineUrl"))
         try container.encode(defaultBranch, forKey: PklCodingKey(string: "defaultBranch"))
 
         try container.encode(userProperties, forKey: PklCodingKey(string: "userProperties"))

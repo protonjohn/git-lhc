@@ -110,6 +110,8 @@ public protocol Trains_PipelineProperties: PklRegisteredType, DynamicallyEquatab
 
     var pagesUrl: String? { get }
 
+    var pipelineUrl: String? { get }
+
     var eventType: String? { get }
 
     var defaultBranch: String? { get }
@@ -656,6 +658,8 @@ extension Trains {
 
         public var pagesUrl: String?
 
+        public var pipelineUrl: String?
+
         public var eventType: String?
 
         public var defaultBranch: String?
@@ -669,6 +673,7 @@ extension Trains {
             refName: String?,
             tagName: String?,
             pagesUrl: String?,
+            pipelineUrl: String?,
             eventType: String?,
             defaultBranch: String?,
             userProperties: [String: String]?
@@ -679,6 +684,7 @@ extension Trains {
             self.refName = refName
             self.tagName = tagName
             self.pagesUrl = pagesUrl
+            self.pipelineUrl = pipelineUrl
             self.eventType = eventType
             self.defaultBranch = defaultBranch
             self.userProperties = userProperties

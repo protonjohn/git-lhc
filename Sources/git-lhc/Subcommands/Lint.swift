@@ -46,15 +46,7 @@ struct Lint: ParsableCommand, VerboseCommand {
         if let since {
             startOID = try repo.oid(for: since)
         } else if Internal.isCI {
-            let ciStartOID: ObjectID?
-            do {
-                ciStartOID = try lintBaseFromGitlabCI(for: repo, head: head)
-            } catch {
-                Internal.print("Could not invoke lint job from CI: \(error)", error: true)
-                return
-            }
-
-            guard let ciStartOID else {
+            guard let ciStartOID = lintBaseFromGitlabCI(for: repo, head: head) else {
                 Internal.print("Could not determine commit base object for linting. Aborting.", error: true)
                 return
             }
@@ -87,7 +79,7 @@ struct Lint: ParsableCommand, VerboseCommand {
         }
     }
 
-    func lintBaseFromGitlabCI(for repo: Repositoryish, head: ReferenceType) throws -> ObjectID? {
+    func lintBaseFromGitlabCI(for repo: Repositoryish, head: ReferenceType) -> ObjectID? {
         let envVars: [GitlabEnvironment] = [
             .mergeRequestDiffBaseSha,
             .mergeRequestTargetBranchSha,

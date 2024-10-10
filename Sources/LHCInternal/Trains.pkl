@@ -32,6 +32,7 @@ open class PipelineProperties {
         else null
 
     pagesUrl: String? = read?("env:CI_PAGES_URL")
+    pipelineUrl: String? = read?("env:CI_PIPELINE_URL")
     eventType: String? = read?("env:CI_PIPELINE_SOURCE") ?? read?("env:GITHUB_EVENT_NAME")
 
     defaultBranch: String? = read?("env:CI_DEFAULT_BRANCH")
