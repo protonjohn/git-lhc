@@ -31,12 +31,14 @@
           fastlane shipit "${FASTLANE_ARGS[@]}"
       done
     {% endblock %}
+  artifacts:
+    {%+ block publish_artifacts %}{% endblock +%}
   needs:
-    {% block publish_job_needs %}
+    {% block publish_needs %}
     - pipeline: {%+ block parent_pipeline_id %}$PARENT_PIPELINE_ID{% endblock +%}
       job: '{% block parent_job_name %}prepare{% endblock %}'
     {% if config.distribution.appStore.action == "Upload" %}
-    {%- block publish_job_needs_binaries -%}
+    {%- block publish_needs_binaries -%}
     {% for configuration in block.publish_app_configurations|split:"," %}
     - job: '{% block build_job_name %}build:{{ config.name }}:all{% endblock %}'
       parallel:
@@ -81,14 +83,10 @@ pages:
     {% endblock %}
   # prevent us from downloading previous build artifacts, we just need the pages
   needs:
-    {% block publish_job_child_pipeline_needs %}
+    {% block pages_child_pipeline_needs %}
     - pipeline: {%+ block parent_pipeline_id %}$PARENT_PIPELINE_ID{% endblock +%}
       job: '{% block parent_job_name %}prepare{% endblock %}'
     {% endblock %}
-    {% if train == "macOS" and channel != "alpha" %}
-    # For sparkle artifacts
-    - job: 'artifactlift-release-artifacts'
-    {% endif %}
   artifacts:
     name: "releases"
     expire_in: {%+ block release_pages_expiry %}never{% endblock +%}

@@ -80,12 +80,9 @@ struct Find: ParsableCommand {
 
             // Otherwise, see if the task ID is mentioned in the change summary.
             for taskId in taskIds {
-                for change in release.changes.flatMap({ $0.value }) {
-                    if change.summary.contains(taskId) {
-                        result.append(release)
-                        shortVersionString = release.shortVersion?.description
-                        continue
-                    }
+                for change in release.changes.flatMap({ $0.value }) where change.summary.contains(taskId) {
+                    result.append(release)
+                    shortVersionString = release.shortVersion?.description
                 }
             }
         }
