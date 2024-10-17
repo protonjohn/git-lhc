@@ -25,7 +25,7 @@ let package = Package(
         .package(url: "https://github.com/almazrafi/DictionaryCoder", exact: "1.1.0"),
         .package(url: "https://github.com/stencilproject/Stencil", exact: "0.15.1"),
         .package(url: "https://github.com/apple/swift-markdown", exact: "0.3.0"),
-        .package(url: "https://github.com/apple/pkl-swift", from: "0.2.1"),
+        .package(url: "https://github.com/apple/pkl-swift", from: "0.3.0"),
     ],
     targets: [
         .executableTarget(
