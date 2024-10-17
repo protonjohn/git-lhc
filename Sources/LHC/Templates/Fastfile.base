@@ -346,9 +346,12 @@ private_lane :setup_codesigning do |arguments|
 end
 
 def unzip_build_products()
+    require 'fileutils'
+
     build_products_zip = rel_to_repo(get_or_die($options, :build_products_zip))
     derived_data_path = $repo_path + "/.DerivedData"
     build_products_dir =  derived_data_path + "/Build/Products"
+
     FileUtils.mkdir_p build_products_dir
 
     puts "Unzipping build products #{build_products_zip} into #{build_products_dir}..."
@@ -454,59 +457,97 @@ private_lane :sparkle_sign_update do |options|
 
     binary_path = rel_to_repo(get_or_die($options, :sparkle_binary_path))
     ed_key = get_or_die($secrets, :appcast_ed_key)
-    item_file = rel_to_repo(get_or_die($options, :sparkle_item_file))
     output_directory = rel_to_repo(get_or_die($options, :output_directory))
 
-    hash = Digest::SHA256.hexdigest(File.read(binary_path))
     signature = `echo #{ed_key} | sign_update -f - #{binary_path}`.strip
     die "Could not sign binary: #{signature}" unless $?.success?
 
+    # Also add the hash as part of the signature.
+    hash = Digest::SHA256.hexdigest(File.read(binary_path))
     signature << " hash=\"#{hash}\""
-    ENV['APPCAST_SIGNATURE'] = signature
 
-    sparkle_item = `envsubst '${APPCAST_SIGNATURE}' < "#{item_file}" 2> /dev/stdout`
-    die "Could not create update xml file: #{sparkle_item}" unless $?.success?
+    sparkle_signature = $options.fetch(:sparkle_signature_name, "sparkle.signature")
 
-    sparkle_signature = "sparkle.signature"
-
-    File.open("#{output_directory}/#{File.basename(item_file)}", 'w+') { |file|
-        file.write(sparkle_item)
-        file.close()
-    }
+    # Write the signature to a file.
     File.open("#{output_directory}/#{sparkle_signature}", 'w+') { |file|
         file.write(signature)
         file.close()
     }
-
-    die "Could not write sparkle.signature file" unless $?.success?
 end
 
 private_lane :sparkle_download_and_save do |options|
+    require 'net/http'
+    require 'fileutils'
+
     appcast_url = get_or_die($options, :appcast_url)
 
     output_directory = rel_to_repo(get_or_die($options, :output_directory))
+    sparkle_xml_name = $options.fetch(:sparkle_xml_name, "sparkle.xml")
 
-    sparkle_xml_name = $options.fetch(:sparkle_xml_name, "sparkle_downloaded.xml")
-    sparkle_xml_contents = download(url: appcast_url)
+    # We use net/http instead of Fastlane's download lane so that we can set request headers if needed.
+    uri = URI(appcast_url)
+    req = Net::HTTP::Get.new(uri)
 
+    if (sparkle_download_headers = $options[:sparkle_download_headers])
+        sparkle_download_headers.each_key { |key|
+            req[key] = sparkle_download_headers[key]
+        }
+    end
+
+    puts "Fetching from #{appcast_url}..."
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = true
+    res = http.request(req)
+
+    FileUtils.mkdir_p(output_directory) unless File.directory?(output_directory)
+
+    puts "Writing to #{output_directory}/#{sparkle_xml_name}..."
     File.open("#{output_directory}/#{sparkle_xml_name}", "w+") { |file|
-        file.write(sparkle_xml_contents)
+        file.write(res.body)
         file.close()
     }
 end
 
 private_lane :sparkle_append_item do |options|
-    item_file = rel_to_repo(get_or_die($options, :sparkle_item_file))
-
     output_directory = rel_to_repo(get_or_die($options, :output_directory))
 
-    sparkle_downloaded_name = $options.fetch(:sparkle_xml_name, "sparkle_downloaded.xml")
+    # The xml item we want to append.
+    item_file = rel_to_repo(get_or_die($options, :sparkle_item_file))
+
+    # The existing contents of the public sparkle feed.
     sparkle_xml_name = $options.fetch(:sparkle_xml_name, "sparkle.xml")
 
-    insertion_point = "<language>en<\\/language>"
-    sh(
-        "sed '/#{insertion_point}/r #{item_file}' '#{output_directory}/#{sparkle_downloaded_name}' > '#{output_directory}/#{sparkle_xml_name}'"
-    )
+    # Where to locate the signature file.
+    sparkle_signature_path = rel_to_repo($options.fetch(:sparkle_signature_path, "sparkle.signature"))
+
+    # Read the contents of the signature file, and set it as an environment variable.
+    unless File.exist?(sparkle_signature_path) and (signature = File.read(sparkle_signature_path))
+        die "Could not open signature at #{sparkle_signature_path}."
+    end
+
+    ENV['APPCAST_SIGNATURE'] = signature
+
+    # Use envsubst to put the signature in the right place in the generated sparkle item template.
+    # Make sure that the resulting item is properly indented.
+    sparkle_item = `envsubst '${APPCAST_SIGNATURE}' < "#{item_file}" 2> /dev/stdout`
+    die "Could not create update xml file: #{sparkle_item}" unless $?.success?
+
+    # Write the new contents of the sparkle item, now including the signature.
+    File.open(item_file, 'w+') { |file|
+        file.write(sparkle_item)
+        file.close()
+    }
+
+    # Insert the sparkle item into the downloaded xml.
+    insertion_point = $options.fetch(:sparkle_insertion_point, "<language>en<\\/language>")
+    inserted_xml = `sed '/#{insertion_point}/r #{item_file}' '#{output_directory}/#{sparkle_xml_name}'`
+
+    # Write the new contents of the sparkle feed, now including the new item.
+    puts "Writing to #{output_directory}/#{sparkle_xml_name}..."
+    File.open("#{output_directory}/#{sparkle_xml_name}", "w+") { |file|
+        file.write(inserted_xml)
+        file.close()
+    }
 end
 
 # This one is kind of a monster: manually crack open the Xcode project, find the named scheme on disk, and iterate

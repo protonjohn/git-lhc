@@ -1,42 +1,43 @@
 {#
 # Template for a Sparkle XML file. The result still needs APPCAST_ED_SIGNATURE to be substituted, which can easily be
-# done with envsubst(1).
-#}<item>	
-    {% block item %}
-    <title>{% block title %}Version {{ version }}{% endblock %}</title>
-    <pubDate>{% block publish_date %}{{ now|format_date:"EEEE, d MMM yyyy HH:mm:ss Z" }}{% endblock %}</pubDate>
-    {% if config.distribution.sparkle.minimumSystemVersion %}
-    <sparkle:minimumSystemVersion>{{ config.distribution.sparkle.minimumSystemVersion }}</sparkle:minimumSystemVersion>
-    {% endif %}
-    {% if config.distribution.sparkle.maximumSystemVersion %}
-    <sparkle:maximumSystemVersion>{{ config.distribution.sparkle.maximumSystemVersion }}</sparkle:maximumSystemVersion>
-    {% endif %}
-    {% if config.distribution.sparkle.appcastChannel %}
-    <sparkle:channel>{{ config.distribution.sparkle.appcastChannel }}</sparkle:channel>
-    {% endif %}
-    {% if config.distribution.sparkle.phasedRolloutInterval %}
-    <sparkle:phasedRolloutInterval>{{ config.distribution.sparkle.phasedRolloutInterval }}</sparkle:phasedRolloutInterval>
-    {% endif %}
-    {% if target|attrs:config.trailers.releaseImmediately %}
-    <sparkle:criticalUpdate></sparkle:criticalUpdate>
-    {% endif %}
-    <description>
-        <![CDATA[
-            <!DOCTYPE html>
-            <body>
-{% filter format_markdown|indent:12," ",true %}
+# done with envsubst(1). This is indented so that it stays at the proper indentation level in the enclosing RSS feed.
+#}
+        <item>	
+            {% block item %}
+            <title>{% block title %}Version {{ version }}{% endblock %}</title>
+            <pubDate>{% block publish_date %}{{ now|format_date:"EEEE, d MMM yyyy HH:mm:ss Z" }}{% endblock %}</pubDate>
+            {% if config.distribution.sparkle.minimumSystemVersion %}
+            <sparkle:minimumSystemVersion>{{ config.distribution.sparkle.minimumSystemVersion }}</sparkle:minimumSystemVersion>
+            {% endif %}
+            {% if config.distribution.sparkle.maximumSystemVersion %}
+            <sparkle:maximumSystemVersion>{{ config.distribution.sparkle.maximumSystemVersion }}</sparkle:maximumSystemVersion>
+            {% endif %}
+            {% if config.distribution.sparkle.appcastChannel %}
+            <sparkle:channel>{{ config.distribution.sparkle.appcastChannel }}</sparkle:channel>
+            {% endif %}
+            {% if config.distribution.sparkle.phasedRolloutInterval %}
+            <sparkle:phasedRolloutInterval>{{ config.distribution.sparkle.phasedRolloutInterval }}</sparkle:phasedRolloutInterval>
+            {% endif %}
+            {% if target|attrs:config.trailers.releaseImmediately %}
+            <sparkle:criticalUpdate></sparkle:criticalUpdate>
+            {% endif %}
+            <description>
+                <![CDATA[
+                    <!DOCTYPE html>
+                    <body>
+        {% filter format_markdown|indent:12," ",true %}
 
-{{ release.body }}
+        {{ release.body }}
 
-{% endfilter +%}
-            </body>
-            </html>
-        ]]>
-    </description>
-    <enclosure url="{% block download_url %}https://example.org/{{ version }}/{{ config.build.productName }}.dmg{% endblock %}"
-               sparkle:version="{% block version %}{% include "timestamp.base" %}{% endblock %}"
-               sparkle:shortVersionString="{% block short_version %}{{ short_version }}{% endblock %}"
-	       $APPCAST_SIGNATURE
-	       type="application/octet-stream" />
-    {% endblock %}
-</item>
+        {% endfilter +%}
+                    </body>
+                    </html>
+                ]]>
+            </description>
+            <enclosure url="{-% block download_url -%}https://example.org/{{ version }}/{{ config.build.productName }}.dmg{%- endblock -%}"
+                       sparkle:version="{% block version %}{% include "timestamp.base" %}{% endblock %}"
+                       sparkle:shortVersionString="{% block short_version %}{{ short_version }}{% endblock %}"
+                       $APPCAST_SIGNATURE
+                       type="application/octet-stream" />
+            {% endblock %}
+        </item>

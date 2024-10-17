@@ -49,8 +49,10 @@ git add "$BASE_PATH"
 git commit -m "pages: {{ config.name }} release {{ version }} $TIMESTAMP"
 
 # Add a snapshot, just in case :)
-git update-ref refs/$REF_NAMESPACE/snapshots/{% include "timestamp.base" %} refs/heads/ci/$RELEASES_PATH
+SNAPSHOT_REF=$REF_NAMESPACE/snapshots/{% include "timestamp.base" %}.{{ config.name }}
+git update-ref refs/$SNAPSHOT_REF refs/heads/ci/$RELEASES_PATH
+
 # Stash the reference in the main branch
 git update-ref refs/$RELEASES_PATH refs/heads/ci/$RELEASES_PATH
 # Force-push back to origin
-git push -f origin refs/$REF_NAMESPACE/*
+git push -f origin refs/$SNAPSHOT_REF refs/$RELEASES_PATH

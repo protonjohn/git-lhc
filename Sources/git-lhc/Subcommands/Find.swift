@@ -53,39 +53,46 @@ struct Find: ParsableCommand {
         let repo = try Internal.openRepo(at: parent.repo)
 
         let taskIdSet = Set(taskIds)
-        let releases = try parent.trains?.get().flatMap { (train: Trains.TrainImpl) -> [Release] in
-            return try repo.allReleases(
-                allowDirty: true,
-                forceLatestVersionTo: nil,
-                train: train
-            ).filter { release in
-                // If a trailer name is set in the configuration, look for trailers first.
-                if trailerName != nil {
-                    let releaseProjectIds = release.changes.flatMap { $0.value.flatMap(\.projectIds) }
-                    if !taskIdSet.isDisjoint(with: releaseProjectIds) {
-                        return true
-                    }
-                }
+        var result = [Release]()
 
-                // Otherwise, see if the task ID is mentioned in the change summary.
-                for taskId in taskIds {
-                    for change in release.changes.flatMap({ $0.value }) {
-                        if change.summary.contains(taskId) {
-                            return true
-                        }
-                    }
-                }
+        var shortVersionString: String?
 
-                return false
+        for release in try repo.allReleases(
+            allowDirty: true,
+            forceLatestVersionTo: nil,
+            channel: parent.channel,
+            train: train
+        ) {
+            if let shortVersionString, release.shortVersion?.description != shortVersionString {
+                // Bail out of the loop early if we've already found our candidate
+                break
+            }
+
+            // If a trailer name is set in the configuration, look for trailers first.
+            if trailerName != nil {
+                let releaseProjectIds = release.changes.flatMap { $0.value.flatMap(\.projectIds) }
+                if !taskIdSet.isDisjoint(with: releaseProjectIds) {
+                    result.append(release)
+                    shortVersionString = release.shortVersion?.description
+                    continue
+                }
+            }
+
+            // Otherwise, see if the task ID is mentioned in the change summary.
+            for taskId in taskIds {
+                for change in release.changes.flatMap({ $0.value }) where change.summary.contains(taskId) {
+                    result.append(release)
+                    shortVersionString = release.shortVersion?.description
+                }
             }
         }
 
-        guard let releases, !releases.isEmpty else {
+        guard !result.isEmpty else {
             Internal.print("No releases with the specified task ID\(taskIds.count > 1 ? "s" : "") were found.")
             throw ExitCode(1)
         }
 
-        try show(releases: releases)
+        try show(releases: result)
     }
 
     mutating func show(releases: [Release]) throws {
