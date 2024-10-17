@@ -34,7 +34,7 @@
                     </html>
                 ]]>
             </description>
-            <enclosure url="{-% block download_url -%}https://example.org/{{ version }}/{{ config.build.productName }}.dmg{%- endblock -%}"
+            <enclosure url="{%- block download_url -%}https://example.org/{{ version }}/{{ config.build.productName }}.dmg{%- endblock -%}"
                        sparkle:version="{% block version %}{% include "timestamp.base" %}{% endblock %}"
                        sparkle:shortVersionString="{% block short_version %}{{ short_version }}{% endblock %}"
                        $APPCAST_SIGNATURE
