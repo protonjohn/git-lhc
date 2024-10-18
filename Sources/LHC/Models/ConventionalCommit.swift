@@ -95,7 +95,7 @@ fileprivate extension ConventionalCommit.Header {
         OneOf {
             Parse {
                 "Revert "
-                Rest().map { $0.trimmingCharacters(in: .init(charactersIn: "\"")) }
+                Rest().map { $0.trimmingCharacters(in: .init(charactersIn: "\"").union(.carriageReturn)) }
             }.map {
                 Self(type: "revert", scope: nil, isBreaking: false, summary: $0)
             }
@@ -149,7 +149,7 @@ fileprivate extension ConventionalCommit.Header {
             type: type,
             scope: scope,
             isBreaking: isBreaking,
-            summary: summary
+            summary: summary.trimmingCharacters(in: .carriageReturn)
         )
     }
 }
@@ -197,7 +197,7 @@ extension ConventionalCommit.Trailer {
             Rest().map(String.init)
         }
     }.map { (key: String, value: String) -> Self in
-        Self(key: key, value: value)
+        Self(key: key, value: value.trimmingCharacters(in: .carriageReturn))
     }
 }
 
@@ -244,7 +244,7 @@ extension ConventionalCommit {
 
         self.init(
             header: header,
-            body: body == "" ? nil : String(body),
+            body: body == "" ? nil : String(body).trimmingCharacters(in: .carriageReturn),
             trailers: trailers,
             attributes: attributes
         )
@@ -366,6 +366,7 @@ extension String {
 extension CharacterSet {
     static let alphanumericsAndSymbols: Self = .alphanumerics.union(.symbols)
     static let punctuationExceptParentheses: Self = .punctuationCharacters.subtracting(.init(charactersIn: "()"))
+    static let carriageReturn: Self = .init(charactersIn: "\r")
 
     static let scopeCharacters: Self = alphanumericsAndSymbols.union(.punctuationExceptParentheses)
     static let trailerKeyCharacters: Self = alphanumericsAndSymbols.union(.init(charactersIn: "-"))
