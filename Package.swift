@@ -17,7 +17,7 @@ let package = Package(
         // Dependencies declare other packages that this package depends on.
         // .package(url: /* package url */, from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", exact: "1.5.0"),
-        .package(url: "https://github.com/jpsim/Yams", exact: "5.0.6"),
+        .package(url: "https://github.com/jpsim/Yams", exact: "5.1.3"),
         .package(url: "https://github.com/protonjohn/SwiftGit2", exact: "0.12.0"),
         .package(url: "https://github.com/mxcl/Version", exact: "2.1.0"),
         .package(url: "https://github.com/pointfreeco/swift-parsing", exact: "0.13.0"),
