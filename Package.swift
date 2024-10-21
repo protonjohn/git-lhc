@@ -24,7 +24,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-docc-plugin", exact: "1.0.0"),
         .package(url: "https://github.com/almazrafi/DictionaryCoder", exact: "1.2.0"),
         .package(url: "https://github.com/stencilproject/Stencil", exact: "0.15.1"),
-        .package(url: "https://github.com/apple/swift-markdown", exact: "0.3.0"),
+        .package(url: "https://github.com/apple/swift-markdown", exact: "0.5.0"),
         .package(url: "https://github.com/apple/pkl-swift", from: "0.3.0"),
     ],
     targets: [
