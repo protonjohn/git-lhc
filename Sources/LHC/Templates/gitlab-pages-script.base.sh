@@ -31,28 +31,46 @@ else
     git worktree add "$WORKTREE_PATH" ci/$RELEASES_PATH
 fi
 
-# Making sure BASE_PATH exists, especially for merge results pipelines
-mkdir -p "$WORKTREE_PATH/$BASE_PATH"
+RETRIES=5
+BACKOFF=2
+RETRY=false
 
-{#
- # Hack to get the path component of the URL, so we can tell the doc generation what the base path is
- # (use CI_PAGES_DOMAIN as the delimiter of a URL like https://subdomain.pages-host.com/page/base/path;
- # since CI_PAGES_DOMAIN is pages-host.com, then the "second field" of the string is /page/base/path,
- # and then the sed command strips the leading slash)
- #}
-PROJECT_PATH=$(awk -F "$CI_PAGES_DOMAIN" '{print $2}' <<< "$CI_PAGES_URL" | sed 's/^\///')
-xcrun docc convert --hosting-base-path "${PROJECT_PATH}/$BASE_PATH" --output-path "$WORKTREE_PATH/$BASE_PATH" $DOCC_PATH
+while [ $RETRIES -gt 0 ]; do
+    [ "$RETRY" == "false" ] || git reset --hard refs/$RELEASES_PATH
 
-# stash the pages output in a separate refs namespace, since it's just being used for storage, and push it.
-cd "$WORKTREE_PATH"
-git add "$BASE_PATH"
-git commit -m "pages: {{ config.name }} release {{ version }} $TIMESTAMP"
+    # Making sure BASE_PATH exists, especially for merge results pipelines
+    mkdir -p "$WORKTREE_PATH/$BASE_PATH"
 
-# Add a snapshot, just in case :)
-SNAPSHOT_REF=$REF_NAMESPACE/snapshots/{% include "timestamp.base" %}.{{ config.name }}
-git update-ref refs/$SNAPSHOT_REF refs/heads/ci/$RELEASES_PATH
+    {#
+     # Hack to get the path component of the URL, so we can tell the doc generation what the base path is
+     # (use CI_PAGES_DOMAIN as the delimiter of a URL like https://subdomain.pages-host.com/page/base/path;
+     # since CI_PAGES_DOMAIN is pages-host.com, then the "second field" of the string is /page/base/path,
+     # and then the sed command strips the leading slash)
+     #}
+    PROJECT_PATH=$(awk -F "$CI_PAGES_DOMAIN" '{print $2}' <<< "$CI_PAGES_URL" | sed 's/^\///')
+    xcrun docc convert --hosting-base-path "${PROJECT_PATH}/$BASE_PATH" --output-path "$WORKTREE_PATH/$BASE_PATH" $DOCC_PATH
 
-# Stash the reference in the main branch
-git update-ref refs/$RELEASES_PATH refs/heads/ci/$RELEASES_PATH
-# Force-push back to origin
-git push -f origin refs/$SNAPSHOT_REF refs/$RELEASES_PATH
+    # stash the pages output in a separate refs namespace, since it's just being used for storage, and push it.
+    cd "$WORKTREE_PATH"
+    git add "$BASE_PATH"
+    git commit -m "pages: {{ config.name }} release {{ version }} $TIMESTAMP"
+
+    # Add a snapshot, just in case :)
+    SNAPSHOT_REF=$REF_NAMESPACE/snapshots/$TIMESTAMP.{{ config.name }}
+    git update-ref refs/$SNAPSHOT_REF refs/heads/ci/$RELEASES_PATH
+
+    # Stash the reference in the main branch
+    git update-ref refs/$RELEASES_PATH refs/heads/ci/$RELEASES_PATH
+    # Force-push back to origin
+    if git push -f origin refs/$SNAPSHOT_REF refs/$RELEASES_PATH; then
+        break
+    else
+        sleep $BACKOFF
+        RETRY=true
+        RETRIES=$((RETRIES-1))
+
+        echo "Push failed. Retrying a maximum of $RETRIES more times before giving up."
+        BACKOFF=$((BACKOFF*2))
+        git fetch origin "+refs/$RELEASES_PATH:refs/$RELEASES_PATH"
+    fi
+done
