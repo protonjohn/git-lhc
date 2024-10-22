@@ -69,8 +69,10 @@ while [ $RETRIES -gt 0 ]; do
         RETRY=true
         RETRIES=$((RETRIES-1))
 
-        echo "Push failed. Retrying a maximum of $RETRIES more times before giving up."
+        echo "Push failed. Retrying a maximum of $RETRIES more time(s) before giving up..."
         BACKOFF=$((BACKOFF*2))
         git fetch origin "+refs/$RELEASES_PATH:refs/$RELEASES_PATH"
     fi
 done
+
+[ $RETRIES -gt 0 ] || (echo "Gave up." && exit 1)

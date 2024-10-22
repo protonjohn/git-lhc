@@ -207,6 +207,13 @@ extension Array<ConventionalCommit.Trailer>: CustomStencilSubscriptable {
     }
 }
 
+extension ConventionalCommit.Header {
+    public init(subject: String) throws {
+        self = try Self.parser.parse(subject)
+    }
+
+}
+
 extension ConventionalCommit {
     /// Create a ConventionalCommit object by parsing a commit message.
     ///
@@ -272,6 +279,72 @@ extension ConventionalCommit {
         } else {
             return .patch
         }
+    }
+
+    public func matchesPolicy(in linterSettings: any Trains.LinterSettings) ->
+                    (policy: any Trains.LinterPolicyItem, target: String)? {
+        let policies: [(KeyPath<any Trains.LinterSettings, (any Trains.LinterPolicyItem)?>)] = [
+            \.commitTypes,
+            \.commitScopes,
+            \.commitTrailers,
+        ]
+
+        for keyPath in policies {
+            guard let policyValue = linterSettings[keyPath: keyPath] else {
+                continue
+            }
+
+            let policy = policyValue.policy
+
+            let inputValues: [String]?
+            let target: String
+            switch keyPath {
+            case \.commitTypes:
+                inputValues = [header.type]
+                target = "type"
+            case \.commitScopes:
+                inputValues = header.scope.map { [$0] }
+                target = "scope"
+            case \.commitTrailers:
+                inputValues = trailers.map { $0.key }
+                target = "trailer"
+            default:
+                fatalError("Unexpected policy \(policy)")
+            }
+
+            switch policyValue.policy {
+            case .allow:
+                guard let inputValues else { continue }
+
+                guard inputValues.allSatisfy({
+                    policyValue.items.contains($0)
+                }) else {
+                    return (policyValue, target)
+                }
+
+            case .deny:
+                guard let inputValues else { continue }
+
+                guard inputValues.allSatisfy({
+                    !policyValue.items.contains($0)
+                }) else {
+                    return (policyValue, target)
+                }
+
+            case .require:
+                guard !policyValue.items.isEmpty, let inputValues else {
+                    return (policyValue, target)
+                }
+
+                guard inputValues.allSatisfy({
+                    policyValue.items.contains($0)
+                }) else {
+                    return (policyValue, target)
+                }
+            }
+        }
+
+        return nil
     }
 }
 

@@ -477,7 +477,7 @@ extension Repositoryish {
         var seen: Set<ObjectID> = []
 
         let repoCommits = try commits(from: releaseTarget, since: lastTarget)
-        let commits: [(oid: OID, cc: ConventionalCommit)] = repoCommits.compactMap { commit in
+        let commits: [(oid: OID, cc: ConventionalCommit)] = repoCommits.compactMap { (commit) -> (OID, ConventionalCommit)? in
             do {
                 defer {
                     seen.insert(commit.oid)
@@ -504,18 +504,22 @@ extension Repositoryish {
                     cc = try ConventionalCommit(message: commit.message, attributes: attributes)
                     commitCache[commit.oid] = cc
                 }
-                guard let categories = train?.linter.requireCommitTypes else {
+
+                guard cc.header.type != "merge" || cc.header.type != "revert", let linterSettings = train?.linter else {
                     return (commit.oid, cc)
                 }
 
-                guard cc.header.type == "merge" ||
-                        cc.header.type == "revert" ||
-                        categories.contains(cc.header.type) == true else {
-                    badCommits.append(commit)
-                    return nil
+                guard let (policy, _) = cc.matchesPolicy(in: linterSettings) else {
+                    return (commit.oid, cc)
                 }
 
-                return (commit.oid, cc)
+                switch policy.policy {
+                case .deny, .require:
+                    badCommits.append(commit)
+                    fallthrough
+                case .allow:
+                    return nil
+                }
             } catch {
                 badCommits.append(commit)
                 return nil

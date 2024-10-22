@@ -160,6 +160,15 @@ extension Trains.TrainImpl: Encodable {
     }
 }
 
+extension Trains.LinterPolicyItemImpl: Encodable {
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: PklCodingKey.self)
+
+        try container.encode(policy.rawValue, forKey: PklCodingKey(string: "policy"))
+        try container.encode(items, forKey: PklCodingKey(string: "items"))
+    }
+}
+
 extension Trains.LinterSettingsImpl: Encodable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: PklCodingKey.self)
@@ -168,8 +177,19 @@ extension Trains.LinterSettingsImpl: Encodable {
         try container.encode(projectIdRegexes, forKey: PklCodingKey(string: "projectIdRegexes"))
         try container.encode(maxSubjectLength, forKey: PklCodingKey(string: "maxSubjectLength"))
         try container.encode(maxBodyLineLength, forKey: PklCodingKey(string: "maxBodyLineLength"))
-        try container.encode(requireCommitTypes, forKey: PklCodingKey(string: "requireCommitTypes"))
         try container.encode(projectIdsInBranches.rawValue, forKey: PklCodingKey(string: "projectIdsInBranches"))
+
+        if let commitTypes = commitTypes as? Trains.LinterPolicyItemImpl {
+            try container.encode(commitTypes, forKey: PklCodingKey(string: "commitTypes"))
+        }
+
+        if let commitScopes = commitScopes as? Trains.LinterPolicyItemImpl {
+            try container.encode(commitScopes, forKey: PklCodingKey(string: "commitScopes"))
+        }
+
+        if let commitTrailers = commitTrailers as? Trains.LinterPolicyItemImpl {
+            try container.encode(commitTrailers, forKey: PklCodingKey(string: "commitTrailers"))
+        }
     }
 }
 

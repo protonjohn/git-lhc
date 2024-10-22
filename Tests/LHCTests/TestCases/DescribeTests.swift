@@ -174,7 +174,12 @@ class DescribeReleaseTests: LHCTestCase {
                 Trains.TrainImpl(
                     tagPrefix: "train/",
                     linter: Trains.LinterSettingsImpl(
-                        requireCommitTypes: ["feat", "fix", "test", "build", "ci"]
+                        commitTypes: Trains.LinterPolicyItemImpl(
+                            policy: .require,
+                            items: ["feat", "fix", "test", "build", "ci"]
+                        ),
+                        commitScopes: nil,
+                        commitTrailers: nil
                     )
                 )
             ]
