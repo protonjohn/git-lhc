@@ -16,7 +16,9 @@ extension Trains.LinterSettingsImpl {
         maxBodyLineLength: Int? = nil,
         projectIdRegexes: [String] = [],
         projectIdsInBranches: Trains.LintProjectIdsInBranches = .never,
-        requireCommitTypes: [String]? = nil
+        commitTypes: (any Trains.LinterPolicyItem)? = nil,
+        commitScopes: (any Trains.LinterPolicyItem)? = nil,
+        commitTrailers: (any Trains.LinterPolicyItem)? = nil
     ) {
         self.init(
             projectIdPrefix: testProjectIdPrefix,
@@ -24,7 +26,9 @@ extension Trains.LinterSettingsImpl {
             maxBodyLineLength: maxBodyLineLength,
             projectIdRegexes: projectIdRegexes,
             projectIdsInBranches: projectIdsInBranches,
-            requireCommitTypes: requireCommitTypes
+            commitTypes: commitTypes,
+            commitScopes: commitScopes,
+            commitTrailers: commitTrailers
         )
     }
 }

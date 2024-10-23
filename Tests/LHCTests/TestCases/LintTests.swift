@@ -35,7 +35,16 @@ class LintingTests: LHCTestCase {
 
     func testLintingBadSubject() throws {
         Internal.loadTrains = { _ in
-            [Trains.TrainImpl(linter: Trains.LinterSettingsImpl(requireCommitTypes: ["fix", "feat"]))]
+            [Trains.TrainImpl(
+                linter: Trains.LinterSettingsImpl(
+                    commitTypes: Trains.LinterPolicyItemImpl(
+                        policy: .require,
+                        items: ["fix", "feat"]
+                    ),
+                    commitScopes: nil,
+                    commitTrailers: nil
+                )
+            )]
         }
 
         try setBranch(MockBranch.branchWithInvalidSubject)
@@ -56,7 +65,9 @@ class LintingTests: LHCTestCase {
             XCTFail("Should not have succeeded when linting a branch with invalid category")
         } catch {
             guard let expected = error as? LintingError,
-                  case .subjectHasUnrecognizedCategory = expected.reason else {
+                  case let .lintingPolicyViolation(policy, target, _) = expected.reason,
+                  policy == .require,
+                  target == "type" else {
                 XCTFail("Expected invalid commit error but instead got \(error)")
                 return
             }
@@ -73,13 +84,18 @@ class LintingTests: LHCTestCase {
                         "([0-9]{3,5})"
                     ],
                     projectIdsInBranches: .commitsMustMatch,
-                    requireCommitTypes: [
-                        "feat",
-                        "fix",
-                        "test",
-                        "build",
-                        "ci"
-                    ]
+                    commitTypes: Trains.LinterPolicyItemImpl(
+                        policy: .require,
+                        items: [
+                            "feat",
+                            "fix",
+                            "test",
+                            "build",
+                            "ci"
+                        ]
+                    ),
+                    commitScopes: nil,
+                    commitTrailers: nil
                 )
             )]
         }

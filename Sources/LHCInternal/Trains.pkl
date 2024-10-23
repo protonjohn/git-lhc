@@ -39,6 +39,16 @@ open class PipelineProperties {
     userProperties: Mapping<String, String>? = null
 }
 
+/// Deny - If a commit matches the given policy item(s), fail the linting step.
+/// Allow - If a commit does not match the given policy item(s), don't fail the linting step, but omit from the release.
+/// Require - If a commit does not match the given policy item(s), fail the linting step.
+typealias LinterPolicy = *"Deny"|"Allow"|"Require"
+
+open class LinterPolicyItem {
+    policy: LinterPolicy
+    items: Listing<String> = null
+}
+
 open class LinterSettings {
     /// The prefix to use for a ticket item ID, if any.
     ///
@@ -58,7 +68,15 @@ open class LinterSettings {
     /// The default conventional commit types allowed for the project.
     ///
     /// If left set to `null`, then the linter will not reject any commits based on an unknown type.
-    requireCommitTypes: Listing<String>? = null 
+    commitTypes: LinterPolicyItem? = null 
+
+    /// The default conventional commit scopes allowed for the project.
+    commitScopes: LinterPolicyItem? = null
+
+    /// The default conventional commit trailers allowed for the project.
+    ///
+    /// Note: this functions independently from `projectIdRegexes` and `projectIdsInBranches`.
+    commitTrailers: LinterPolicyItem? = null
 }
 
 open class MatchSettings {

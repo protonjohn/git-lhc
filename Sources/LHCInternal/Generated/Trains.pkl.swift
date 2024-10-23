@@ -62,7 +62,17 @@ public protocol Trains_LinterSettings: PklRegisteredType, DynamicallyEquatable, 
 
     var projectIdsInBranches: Trains.LintProjectIdsInBranches { get }
 
-    var requireCommitTypes: [String]? { get }
+    var commitTypes: (any Trains.LinterPolicyItem)? { get }
+
+    var commitScopes: (any Trains.LinterPolicyItem)? { get }
+
+    var commitTrailers: (any Trains.LinterPolicyItem)? { get }
+}
+
+public protocol Trains_LinterPolicyItem: PklRegisteredType, DynamicallyEquatable, Hashable {
+    var policy: Trains.LinterPolicy { get }
+
+    var items: [String] { get }
 }
 
 public protocol Trains_BuildSettings: PklRegisteredType, DynamicallyEquatable, Hashable {
@@ -189,6 +199,15 @@ extension Trains {
         case never = "Never"
         case always = "Always"
         case commitsMustMatch = "CommitsMustMatch"
+    }
+
+    /// Deny - If a commit matches the given policy item(s), fail the linting step.
+    /// Allow - If a commit does not match the given policy item(s), don't fail the linting step, but omit from the release.
+    /// Require - If a commit does not match the given policy item(s), fail the linting step.
+    public enum LinterPolicy: String, CaseIterable, Decodable, Hashable {
+        case deny = "Deny"
+        case allow = "Allow"
+        case require = "Require"
     }
 
     public enum DistributionSettings: Decodable, Hashable {
@@ -469,7 +488,15 @@ extension Trains {
         /// The default conventional commit types allowed for the project.
         ///
         /// If left set to `null`, then the linter will not reject any commits based on an unknown type.
-        public var requireCommitTypes: [String]?
+        public var commitTypes: (any LinterPolicyItem)?
+
+        /// The default conventional commit scopes allowed for the project.
+        public var commitScopes: (any LinterPolicyItem)?
+
+        /// The default conventional commit trailers allowed for the project.
+        ///
+        /// Note: this functions independently from `projectIdRegexes` and `projectIdsInBranches`.
+        public var commitTrailers: (any LinterPolicyItem)?
 
         public init(
             projectIdPrefix: String?,
@@ -477,14 +504,77 @@ extension Trains {
             maxBodyLineLength: Int?,
             projectIdRegexes: [String],
             projectIdsInBranches: LintProjectIdsInBranches,
-            requireCommitTypes: [String]?
+            commitTypes: (any LinterPolicyItem)?,
+            commitScopes: (any LinterPolicyItem)?,
+            commitTrailers: (any LinterPolicyItem)?
         ) {
             self.projectIdPrefix = projectIdPrefix
             self.maxSubjectLength = maxSubjectLength
             self.maxBodyLineLength = maxBodyLineLength
             self.projectIdRegexes = projectIdRegexes
             self.projectIdsInBranches = projectIdsInBranches
-            self.requireCommitTypes = requireCommitTypes
+            self.commitTypes = commitTypes
+            self.commitScopes = commitScopes
+            self.commitTrailers = commitTrailers
+        }
+
+        public static func ==(lhs: LinterSettingsImpl, rhs: LinterSettingsImpl) -> Bool {
+            lhs.projectIdPrefix == rhs.projectIdPrefix
+            && lhs.maxSubjectLength == rhs.maxSubjectLength
+            && lhs.maxBodyLineLength == rhs.maxBodyLineLength
+            && lhs.projectIdRegexes == rhs.projectIdRegexes
+            && lhs.projectIdsInBranches == rhs.projectIdsInBranches
+            && ((lhs.commitTypes == nil && rhs.commitTypes == nil) || lhs.commitTypes?.isDynamicallyEqual(to: rhs.commitTypes) ?? false)
+            && ((lhs.commitScopes == nil && rhs.commitScopes == nil) || lhs.commitScopes?.isDynamicallyEqual(to: rhs.commitScopes) ?? false)
+            && ((lhs.commitTrailers == nil && rhs.commitTrailers == nil) || lhs.commitTrailers?.isDynamicallyEqual(to: rhs.commitTrailers) ?? false)
+        }
+
+        public func hash(into hasher: inout Hasher) {
+            hasher.combine(projectIdPrefix)
+            hasher.combine(maxSubjectLength)
+            hasher.combine(maxBodyLineLength)
+            hasher.combine(projectIdRegexes)
+            hasher.combine(projectIdsInBranches)
+            if let commitTypes {
+                hasher.combine(commitTypes)
+            }
+            if let commitScopes {
+                hasher.combine(commitScopes)
+            }
+            if let commitTrailers {
+                hasher.combine(commitTrailers)
+            }
+        }
+
+        public init(from decoder: Decoder) throws {
+            let dec = try decoder.container(keyedBy: PklCodingKey.self)
+            let projectIdPrefix = try dec.decode(String?.self, forKey: PklCodingKey(string: "projectIdPrefix"))
+            let maxSubjectLength = try dec.decode(Int?.self, forKey: PklCodingKey(string: "maxSubjectLength"))
+            let maxBodyLineLength = try dec.decode(Int?.self, forKey: PklCodingKey(string: "maxBodyLineLength"))
+            let projectIdRegexes = try dec.decode([String].self, forKey: PklCodingKey(string: "projectIdRegexes"))
+            let projectIdsInBranches = try dec.decode(LintProjectIdsInBranches.self, forKey: PklCodingKey(string: "projectIdsInBranches"))
+            let commitTypes = try dec.decode(PklSwift.PklAny.self, forKey: PklCodingKey(string: "commitTypes"))
+                    .value as! (any LinterPolicyItem)?
+            let commitScopes = try dec.decode(PklSwift.PklAny.self, forKey: PklCodingKey(string: "commitScopes"))
+                    .value as! (any LinterPolicyItem)?
+            let commitTrailers = try dec.decode(PklSwift.PklAny.self, forKey: PklCodingKey(string: "commitTrailers"))
+                    .value as! (any LinterPolicyItem)?
+            self = LinterSettingsImpl(projectIdPrefix: projectIdPrefix, maxSubjectLength: maxSubjectLength, maxBodyLineLength: maxBodyLineLength, projectIdRegexes: projectIdRegexes, projectIdsInBranches: projectIdsInBranches, commitTypes: commitTypes, commitScopes: commitScopes, commitTrailers: commitTrailers)
+        }
+    }
+
+    public typealias LinterPolicyItem = Trains_LinterPolicyItem
+
+    public struct LinterPolicyItemImpl: LinterPolicyItem {
+        public static var registeredIdentifier: String = "Trains#LinterPolicyItem"
+
+        public var policy: LinterPolicy
+
+        public var items: [String]
+
+        public init(policy: LinterPolicy, items: [String]) {
+            self.policy = policy
+            self.items = items
         }
     }
 

@@ -32,13 +32,16 @@ class NewTests: LHCTestCase {
                     releaseChannel: .production,
                     linter: Trains.LinterSettingsImpl(
                         testProjectIdPrefix: "TEST-",
-                        requireCommitTypes: [
+                        commitTypes: Trains.LinterPolicyItemImpl(
+                            policy: .require,
+                            items: [
                                 "feat",
                                 "fix",
                                 "test",
                                 "build",
                                 "ci",
-                        ]
+                            ]
+                        )
                     ),
                     trailers: Trains.TrailersImpl(
                         testProjectId: "Project-Id"
@@ -94,13 +97,18 @@ class NewTests: LHCTestCase {
                         releaseChannel: .init(rawValue: channel.rawValue)!,
                         linter: Trains.LinterSettingsImpl(
                             testProjectIdPrefix: "TEST-",
-                            requireCommitTypes: [
+                            commitTypes: Trains.LinterPolicyItemImpl(
+                                policy: .require,
+                                items: [
                                     "feat",
                                     "fix",
                                     "test",
                                     "build",
                                     "ci",
-                            ]
+                                ]
+                            ),
+                            commitScopes: nil,
+                            commitTrailers: nil
                         ),
                         trailers: Trains.TrailersImpl(
                             testProjectId: "Project-Id"
@@ -188,13 +196,18 @@ class NewTests: LHCTestCase {
                     tagPrefix: nil,
                     linter: Trains.LinterSettingsImpl(
                         testProjectIdPrefix: "VPNAPPL-",
-                        requireCommitTypes: [
+                        commitTypes: Trains.LinterPolicyItemImpl(
+                            policy: .require,
+                            items: [
                                 "feat",
                                 "fix",
                                 "test",
                                 "build",
                                 "ci",
-                        ]
+                            ]
+                        ),
+                        commitScopes: nil,
+                        commitTrailers: nil
                     ),
                     trailers: Trains.TrailersImpl(
                         testProjectId: "Project-Id"

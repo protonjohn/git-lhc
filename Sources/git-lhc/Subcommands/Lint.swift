@@ -119,35 +119,6 @@ struct Lint: ParsableCommand, VerboseCommand {
             throw LintingError(commit, .missingSubject)
         }
 
-        let header = ConventionalCommit.parseMergeOrRevertCommit(subject: subject)
-
-        switch header?.type {
-        case "merge":
-            printIfVerbose("Skipping merge commit for \(header!.summary).\n")
-
-        // This is the default case (neither merge nor revert). We want to lint the subject as well as the rest of the
-        // message, whereas for revert commits we only care about what comes after the subject.
-        case nil:
-            try lint(subject: subject, of: commit, train: train)
-            fallthrough
-
-        case "revert":
-            if components.count > 1 {
-                try lint(paragraphs: components[1...], of: commit, train: train)
-            }
-
-            let branchName = branch?.name ?? Internal.branchName
-            try lintTrailers(of: commit, branchName: branchName, train: train)
-
-            printIfVerbose("No issues found.\n")
-
-        default:
-            throw LintingError(commit, .subjectHasUnrecognizedCategory(category: header!.type))
-        }
-
-    }
-
-    mutating func lint(subject: String, of commit: Commitish, train: Trains.TrainImpl?) throws {
         printIfVerbose("Checking commit summary...")
         if let subjectMaxLength = train?.linter.maxSubjectLength,
            subject.count > subjectMaxLength {
@@ -158,19 +129,20 @@ struct Lint: ParsableCommand, VerboseCommand {
         guard let match = try? Regex(regex).wholeMatch(in: subject) else {
             throw LintingError(commit, .subjectDoesNotMatchRegex(regex: regex))
         }
-        guard let categorySubstring = match.output[1].substring else {
-            throw LintingError(commit, .subjectHasMissingCategory)
+
+        let cc = try ConventionalCommit(message: commit.message)
+        if let train,
+              let (policy, target) = cc.matchesPolicy(in: train.linter),
+              policy.policy != .allow {
+            throw LintingError(commit, .lintingPolicyViolation(policy: policy.policy, target: target, values: policy.items))
         }
 
-        let category = String(categorySubstring)
-        guard let categories = train?.linter.requireCommitTypes else {
+        guard cc.header.type != "revert" && cc.header.type != "merge" else {
             return
         }
 
-        printIfVerbose("Checking that commit type matches configured categories...")
-        guard categories.contains(category) else {
-            throw LintingError(commit, .subjectHasUnrecognizedCategory(category: category))
-        }
+        try lint(paragraphs: components[1...], of: commit, train: train)
+        try lintTrailers(of: commit, branchName: branch?.name ?? Internal.branchName, train: train)
     }
 
     mutating func lint(paragraphs: ArraySlice<String>, of commit: Commitish, train: Trains.TrainImpl?) throws {
@@ -272,11 +244,10 @@ struct LintingError: Error, CustomStringConvertible {
         case missingSubject
         case subjectTooLong(configuredMax: Int)
         case subjectDoesNotMatchRegex(regex: String)
-        case subjectHasMissingCategory
-        case subjectHasUnrecognizedCategory(category: String)
         case lineInBodyTooLong(configuredMax: Int)
         case trailersMissing(underlyingError: Error)
         case missingSpecificTrailer(named: String, withValue: String?)
+        case lintingPolicyViolation(policy: Trains.LinterPolicy, target: String, values: [String]?)
     }
 
     let offendingCommit: Commitish
@@ -292,10 +263,6 @@ struct LintingError: Error, CustomStringConvertible {
             result = "Commit has a subject line that is longer than \(configuredMax) characters"
         case .subjectDoesNotMatchRegex:
             result = "Commit subject does not meet conventional commit specifications"
-        case let .subjectHasUnrecognizedCategory(category):
-            result = "Commit subject has unrecognized category '\(category)'"
-        case .subjectHasMissingCategory:
-            result = "Commit subject has missing category"
         case let .lineInBodyTooLong(configuredMax):
             result = "Commit body has one or more lines longer than \(configuredMax) characters"
         case let .trailersMissing(underlyingError):
@@ -304,6 +271,17 @@ struct LintingError: Error, CustomStringConvertible {
             result = "Commit is missing a '\(name)' trailer"
             if let expectedValue {
                 result += " with expected value '\(expectedValue)'"
+            }
+        case let .lintingPolicyViolation(policy, target, values):
+            result = "Commit violates \(policy.rawValue) policy for \(target) "
+            if let values, !values.isEmpty {
+                if values.count > 1 {
+                    result += "with values \(values)"
+                } else {
+                    result += "with value '\(values.first!)'"
+                }
+            } else {
+                result += "missing value"
             }
         }
 
