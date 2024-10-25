@@ -39,10 +39,11 @@ open class PipelineProperties {
     userProperties: Mapping<String, String>? = null
 }
 
-/// Deny - If a commit matches the given policy item(s), fail the linting step.
 /// Allow - If a commit does not match the given policy item(s), don't fail the linting step, but omit from the release.
 /// Require - If a commit does not match the given policy item(s), fail the linting step.
-typealias LinterPolicy = *"Deny"|"Allow"|"Require"
+/// Ignore - If a commit matches the given policy item(s), don't fail the linting step, but omit from the release.
+/// Deny - If a commit matches the given policy item(s), fail the linting step.
+typealias LinterPolicy = *"Allow"|"Require"|"Ignore"|"Deny"
 
 open class LinterPolicyItem {
     policy: LinterPolicy

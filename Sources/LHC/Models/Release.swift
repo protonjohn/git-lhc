@@ -517,7 +517,7 @@ extension Repositoryish {
                 case .deny, .require:
                     badCommits.append(commit)
                     fallthrough
-                case .allow:
+                case .allow, .ignore:
                     return nil
                 }
             } catch {
