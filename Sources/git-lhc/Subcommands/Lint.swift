@@ -134,7 +134,7 @@ struct Lint: ParsableCommand, VerboseCommand {
         let cc = try ConventionalCommit(message: commit.message)
         if let train,
               let (policy, target) = cc.matchesPolicy(in: train.linter),
-              policy.policy != .allow {
+               policy.policy != .allow && policy.policy != .ignore {
             throw LintingError(commit, .lintingPolicyViolation(policy: policy.policy, target: target, values: policy.items))
         }
 
