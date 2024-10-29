@@ -7,16 +7,20 @@ trains = new {
 
         linter = new LinterSettings {
             projectIdsInBranches = "Never"
-            requireCommitTypes = new Listing {
-                "feat"
-                "fix"
-                "test"
-                "refactor"
-                "build"
-                "doc"
-                "ci"
-            }
             maxSubjectLength = 72
+
+            commitTypes = new LinterPolicyItem {
+                policy = "Require"
+                items = new Listing {
+                    "feat"
+                    "fix"
+                    "test"
+                    "refactor"
+                    "build"
+                    "doc"
+                    "ci"
+                }
+            }
         }
 
         templatesDirectory = "Integration/Templates"
