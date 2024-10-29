@@ -155,26 +155,14 @@ struct New: ParsableCommand, QuietCommand {
         }
     }
 
-    mutating func editNotes(for release: Release, train: Trains.TrainImpl?) throws -> String? {
-        var releaseNotesContents = ""
+    mutating func getReleaseNotes(for release: Release, train: Trains.TrainImpl?) throws -> String? {
+        guard let releaseNotes else { return nil }
 
-        if let releaseNotes {
-            guard let contents = Internal.fileManager.contents(atPath: releaseNotes) else {
-                throw LHCError.invalidPath(releaseNotes)
-            }
-            releaseNotesContents = String(data: contents, encoding: .utf8) ?? ""
+        guard let contents = Internal.fileManager.contents(atPath: releaseNotes) else {
+            throw LHCError.invalidPath(releaseNotes)
         }
 
-        if !quiet {
-            Internal.print("Release notes:", releaseNotesContents, separator: "\n")
-            if Internal.promptForConfirmation("Edit?", continueText: false, defaultAction: false) {
-                releaseNotes = try Internal.fileManager.editFile(
-                    releaseNotesContents,
-                    temporaryFileName: "release_notes.txt"
-                ) ?? ""
-            }
-        }
-        return releaseNotesContents
+        return String(data: contents, encoding: .utf8)
     }
 
     mutating func run() throws {
@@ -199,7 +187,7 @@ struct New: ParsableCommand, QuietCommand {
             fatalError("Invariant error: no release found or created")
         }
 
-        if let notes = try editNotes(for: release, train: train), !notes.isEmpty {
+        if let notes = try getReleaseNotes(for: release, train: train), !notes.isEmpty {
             release = release.adding(notes: notes)
         }
 

@@ -201,13 +201,15 @@ extension Trains {
         case commitsMustMatch = "CommitsMustMatch"
     }
 
-    /// Deny - If a commit matches the given policy item(s), fail the linting step.
     /// Allow - If a commit does not match the given policy item(s), don't fail the linting step, but omit from the release.
     /// Require - If a commit does not match the given policy item(s), fail the linting step.
+    /// Ignore - If a commit matches the given policy item(s), don't fail the linting step, but omit from the release.
+    /// Deny - If a commit matches the given policy item(s), fail the linting step.
     public enum LinterPolicy: String, CaseIterable, Decodable, Hashable {
-        case deny = "Deny"
         case allow = "Allow"
         case require = "Require"
+        case ignore = "Ignore"
+        case deny = "Deny"
     }
 
     public enum DistributionSettings: Decodable, Hashable {

@@ -295,50 +295,42 @@ extension ConventionalCommit {
             }
 
             let policy = policyValue.policy
+            let policyItems = policyValue.items.map { $0.lowercased() }
 
             let inputValues: [String]?
             let target: String
             switch keyPath {
             case \.commitTypes:
-                inputValues = [header.type]
+                inputValues = [header.type.lowercased()]
                 target = "type"
             case \.commitScopes:
-                inputValues = header.scope.map { [$0] }
+                inputValues = header.scope.map { [$0.lowercased()] }
                 target = "scope"
             case \.commitTrailers:
-                inputValues = trailers.map { $0.key }
+                inputValues = trailers.map { $0.key.lowercased() }
                 target = "trailer"
             default:
                 fatalError("Unexpected policy \(policy)")
             }
 
             switch policyValue.policy {
+            case .require:
+                guard !policyValue.items.isEmpty, inputValues != nil else {
+                    return (policyValue, target)
+                }
+
+                fallthrough
             case .allow:
                 guard let inputValues else { continue }
 
-                guard inputValues.allSatisfy({
-                    policyValue.items.contains($0)
-                }) else {
+                guard inputValues.allSatisfy({ policyItems.contains($0) }) else {
                     return (policyValue, target)
                 }
 
-            case .deny:
+            case .deny, .ignore:
                 guard let inputValues else { continue }
 
-                guard inputValues.allSatisfy({
-                    !policyValue.items.contains($0)
-                }) else {
-                    return (policyValue, target)
-                }
-
-            case .require:
-                guard !policyValue.items.isEmpty, let inputValues else {
-                    return (policyValue, target)
-                }
-
-                guard inputValues.allSatisfy({
-                    policyValue.items.contains($0)
-                }) else {
+                guard inputValues.allSatisfy({ !policyItems.contains($0) }) else {
                     return (policyValue, target)
                 }
             }
