@@ -156,8 +156,6 @@ struct New: ParsableCommand, QuietCommand {
     }
 
     mutating func getReleaseNotes(for release: Release, train: Trains.TrainImpl?) throws -> String? {
-        var releaseNotesContents = ""
-
         guard let releaseNotes else { return nil }
 
         guard let contents = Internal.fileManager.contents(atPath: releaseNotes) else {
