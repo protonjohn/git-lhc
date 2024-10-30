@@ -24,14 +24,13 @@
             <description>
                 <![CDATA[
                     <!DOCTYPE html>
-                    <body>
-        {% filter format_markdown|indent:12," ",true %}
+                    <html><body>
+{% filter format_markdown|indent:20," ",true %}
 
-        {{ release.body }}
+{{ release.body }}
 
-        {% endfilter +%}
-                    </body>
-                    </html>
+{% endfilter +%}
+                    </body></html>
                 ]]>
             </description>
             <enclosure url="{%- block download_url -%}https://example.org/{{ version }}/{{ config.build.productName }}.dmg{%- endblock -%}"
