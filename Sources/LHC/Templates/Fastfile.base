@@ -943,6 +943,7 @@ lane :announceit do |arguments|
 
     if forum.start_with?("https://") # webhook url
         url = forum
+        ENV.delete("SLACK_URL")
     else
         channel = forum
     end
@@ -956,6 +957,7 @@ lane :announceit do |arguments|
         slack(
             {% block slack_args %}
             pretext: "Release Announcement",
+            slack_url: url,
             message: message,
             channel: channel,
             success: $options.fetch(:slack_success, true),
