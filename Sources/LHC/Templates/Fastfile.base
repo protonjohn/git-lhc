@@ -179,7 +179,7 @@ private_lane :create_simulator do |arguments|
     end
 
     puts "Finding the first runtime containing the string #{runtime_filter}..."
-    runtime = `xcrun simctl list runtimes | grep #{runtime_filter} | head -n 1 | awk '{print $NF}' 2> /dev/stdout`
+    runtime = `xcrun simctl list runtimes | grep "#{runtime_filter}" | head -n 1 | awk '{print $NF}' 2> /dev/stdout`
     die "Unable to get simulator runtime: #{runtime}" unless $?.success?
 
     puts "Creating simulator #{destination_name} with device #{device_type} and runtime #{runtime}..."
